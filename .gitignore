@@ -1,0 +1,23 @@
+# VSCode
+.vscode/
+*.code-workspace
+
+# ROS2 Bags
+Bag/
+*.db3
+*.yaml
+
+# Build artifacts
+build/
+install/
+log/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# OS
+.DS_Store
+Thumbs.db

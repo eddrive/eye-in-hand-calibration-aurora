@@ -1,0 +1,25 @@
+version: '3.3'
+
+services:
+  eye_in_hand_calibration:
+    image: eye_in_hand_calibration:latest
+    container_name: eye_in_hand_calib
+    stdin_open: true
+    tty: true
+    network_mode: host
+    privileged: true
+    
+    environment:
+      - DISPLAY=${DISPLAY}
+      - QT_QPA_PLATFORM=xcb
+      - QT_X11_NO_MITSHM=1
+    
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+    
+    devices:
+      - /dev/video2:/dev/video2  # endoscope camera
+      - /dev/video3:/dev/video3  
+      - /dev/ttyUSB0:/dev/ttyUSB0  # serial connection
+    
+    command: bash
