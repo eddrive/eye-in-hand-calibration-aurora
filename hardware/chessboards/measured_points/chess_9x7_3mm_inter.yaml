@@ -1,0 +1,97 @@
+# Measured chessboard corner positions using Aurora tracking
+# Coordinate frame: Aurora sensor measurements
+# Units: meters
+# Chessboard: 7 columns × 9 rows of squares (3mm each) → 6 columns × 8 rows of internal corners
+
+chessboard_corners:
+  rows: 8           # Height (vertical) - internal corners
+  cols: 6           # Width (horizontal) - internal corners
+  
+  # Measurement metadata
+  measurement_date: "2025-10-27"
+  measured_by: "Edoardo"
+  square_size_mm: 3.0
+  aurora_rms_error: 0.0  # mm (update with actual value from Aurora system)
+  notes: "Chessboard 7 columns x 9 rows (3mm squares). Grid interpolated from 4 corner measurements to ensure perfect planarity and uniform spacing."
+  interpolation_method: "bilinear"
+  
+  # Original corner measurements used for interpolation
+  corner_measurements:
+    top_left: {x: 0.12656750, y: -0.07155250, z: -0.16850750}
+    top_right: {x: 0.12632750, y: -0.08658500, z: -0.16869250}
+    bottom_left: {x: 0.12640250, y: -0.07184250, z: -0.18973750}
+    bottom_right: {x: 0.12622000, y: -0.08665750, z: -0.18986250}
+  
+  # Planarity analysis
+  planarity_x_range_mm: 0.347   # Total X deviation
+  planarity_y_range_mm: 15.105  # Total Y deviation
+  planarity_z_range_mm: 21.355  # Total Z deviation
+  avg_spacing_y_mm: 2.985        # Average spacing along Y axis (~3mm expected)
+  avg_spacing_z_mm: 3.029        # Average spacing along Z axis (~3mm expected)
+  
+  # Corner positions (row-major order: top-left to bottom-right)
+  # All coordinates in meters, interpolated using bilinear interpolation from 4 measured corners
+  points:
+    # Row 0 (top)
+    - {x: 0.12656750, y: -0.07155250, z: -0.16850750}
+    - {x: 0.12651950, y: -0.07455900, z: -0.16854450}
+    - {x: 0.12647150, y: -0.07756550, z: -0.16858150}
+    - {x: 0.12642350, y: -0.08057200, z: -0.16861850}
+    - {x: 0.12637550, y: -0.08357850, z: -0.16865550}
+    - {x: 0.12632750, y: -0.08658500, z: -0.16869250}
+    
+    # Row 1
+    - {x: 0.12654393, y: -0.07159393, z: -0.17154036}
+    - {x: 0.12649757, y: -0.07459421, z: -0.17157564}
+    - {x: 0.12645121, y: -0.07759450, z: -0.17161093}
+    - {x: 0.12640486, y: -0.08059479, z: -0.17164621}
+    - {x: 0.12635850, y: -0.08359507, z: -0.17168150}
+    - {x: 0.12631214, y: -0.08659536, z: -0.17171679}
+    
+    # Row 2
+    - {x: 0.12652036, y: -0.07163536, z: -0.17457321}
+    - {x: 0.12647564, y: -0.07462943, z: -0.17460679}
+    - {x: 0.12643093, y: -0.07762350, z: -0.17464036}
+    - {x: 0.12638621, y: -0.08061757, z: -0.17467393}
+    - {x: 0.12634150, y: -0.08361164, z: -0.17470750}
+    - {x: 0.12629679, y: -0.08660571, z: -0.17474107}
+    
+    # Row 3
+    - {x: 0.12649679, y: -0.07167679, z: -0.17760607}
+    - {x: 0.12645371, y: -0.07466464, z: -0.17763793}
+    - {x: 0.12641064, y: -0.07765250, z: -0.17766979}
+    - {x: 0.12636757, y: -0.08064036, z: -0.17770164}
+    - {x: 0.12632450, y: -0.08362821, z: -0.17773350}
+    - {x: 0.12628143, y: -0.08661607, z: -0.17776536}
+    
+    # Row 4
+    - {x: 0.12647321, y: -0.07171821, z: -0.18063893}
+    - {x: 0.12643179, y: -0.07469986, z: -0.18066907}
+    - {x: 0.12639036, y: -0.07768150, z: -0.18069921}
+    - {x: 0.12634893, y: -0.08066314, z: -0.18072936}
+    - {x: 0.12630750, y: -0.08364479, z: -0.18075950}
+    - {x: 0.12626607, y: -0.08662643, z: -0.18078964}
+    
+    # Row 5
+    - {x: 0.12644964, y: -0.07175964, z: -0.18367179}
+    - {x: 0.12640986, y: -0.07473507, z: -0.18370021}
+    - {x: 0.12637007, y: -0.07771050, z: -0.18372864}
+    - {x: 0.12633029, y: -0.08068593, z: -0.18375707}
+    - {x: 0.12629050, y: -0.08366136, z: -0.18378550}
+    - {x: 0.12625071, y: -0.08663679, z: -0.18381393}
+    
+    # Row 6
+    - {x: 0.12642607, y: -0.07180107, z: -0.18670464}
+    - {x: 0.12638793, y: -0.07477029, z: -0.18673136}
+    - {x: 0.12634979, y: -0.07773950, z: -0.18675807}
+    - {x: 0.12631164, y: -0.08070871, z: -0.18678479}
+    - {x: 0.12627350, y: -0.08367793, z: -0.18681150}
+    - {x: 0.12623536, y: -0.08664714, z: -0.18683821}
+    
+    # Row 7 (bottom)
+    - {x: 0.12640250, y: -0.07184250, z: -0.18973750}
+    - {x: 0.12636600, y: -0.07480550, z: -0.18976250}
+    - {x: 0.12632950, y: -0.07776850, z: -0.18978750}
+    - {x: 0.12629300, y: -0.08073150, z: -0.18981250}
+    - {x: 0.12625650, y: -0.08369450, z: -0.18983750}
+    - {x: 0.12622000, y: -0.08665750, z: -0.18986250}

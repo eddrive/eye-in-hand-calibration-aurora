@@ -106,23 +106,27 @@ RUN rosdep update
 # Copy Packages
 # ============================================
 
+# AGGIUNTO: Build argument per invalidare la cache
+ARG CACHEBUST=1
 
 # Clone Aurora NDI ROS2 driver from GitHub
-RUN git clone -b ros2-package https://github.com/eddrive/aurora_ndi_ros2_driver.git /workspace/src/aurora_ndi_ros2_driver && \
+RUN echo "Cache bust: $CACHEBUST" && \
+    rm -rf /workspace/src/aurora_ndi_ros2_driver && \
+    git clone -b ros2-package https://github.com/eddrive/aurora_ndi_ros2_driver.git /workspace/src/aurora_ndi_ros2_driver && \
     cd /workspace/src/aurora_ndi_ros2_driver && \
     echo "=== Cloned commit ===" && \
     git log -1 --oneline && \
     echo "=== AuroraData.msg ===" && \
     cat msg/AuroraData.msg
+
 # Copy ROS2 package
-COPY resources/hand_eye_calibration $COLCON_WS/src/hand_eye_calibration
+COPY ../resources/hand_eye_calibration $COLCON_WS/src/hand_eye_calibration
 
 # Copy resources
-COPY resources/calibration /root/calibration
-COPY resources/visualize_eye_in_hand.py ${COLCON_WS}/visualize_eye_in_hand.py
+COPY ../resources/calibration /root/calibration
 
 # Copy test bags (optional)
-COPY Bag $COLCON_WS/bags
+COPY ../data/rosbags $COLCON_WS/bags
 
 # Install package dependencies
 RUN rosdep install --ignore-src --from-paths src -y --rosdistro humble || true
@@ -139,11 +143,15 @@ RUN /bin/bash -c "source /opt/ros/humble/setup.bash && \
 # ============================================
 
 # Copy camera parameters
-COPY resources/camera_params_480p.yaml /usr/local/bin/camera_params_480p.yaml
-COPY resources/camera_params_1080p.yaml /usr/local/bin/camera_params_1080p.yaml
+COPY ../resources/calibration/camera_params_480p.yaml /usr/local/bin/camera_params_480p.yaml
+COPY ../resources/calibration/camera_params_1080p.yaml /usr/local/bin/camera_params_1080p.yaml
+
+# Copy chessboards measured_points
+COPY ../hardware/chessboards/measured_points $COLCON_WS/src/hand_eye_calibration/config
+
 
 # Copy and setup entrypoint script
-COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # Source ROS2 setup in bashrc

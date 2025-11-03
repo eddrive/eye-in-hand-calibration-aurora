@@ -1,0 +1,14 @@
+usb_cam:
+  ros__parameters:
+    video_device: "/dev/video2"
+    image_width: 640
+    image_height: 480
+    pixel_format: "mjpeg2rgb"
+    framerate: 30.0
+    brightness: -11
+    contrast: 148
+    saturation: 180
+    hue: 0
+    camera_name: "endoscope"
+    frame_id: "endo_optical"
+    camera_info_url: "file:///root/calibration/camera_calibration_fisheye_480p.yaml"

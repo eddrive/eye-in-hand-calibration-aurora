@@ -1,0 +1,23 @@
+image_width: 1920
+image_height: 1080
+resolution: 1080p
+camera_name: usb_video:_usb_video_1080p
+camera_matrix:
+  rows: 3
+  cols: 3
+  data: [742.8597108051345, 0.0, 961.064421954879, 0.0, 741.6047891430186, 556.5301541163601,
+    0.0, 0.0, 1.0]
+distortion_model: fisheye
+distortion_coefficients:
+  rows: 1
+  cols: 4
+  data: [-0.09763800724539265, -0.11864509748490895, 0.1863408153912626, -0.10935141055563363]
+rectification_matrix:
+  rows: 3
+  cols: 3
+  data: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+projection_matrix:
+  rows: 3
+  cols: 4
+  data: [742.8597108051345, 0.0, 961.064421954879, 0.0, 0.0, 741.6047891430186, 556.5301541163601,
+    0.0, 0.0, 0.0, 1.0, 0.0]

@@ -1,0 +1,23 @@
+image_width: 640
+image_height: 480
+resolution: 480p
+camera_name: endoscope
+camera_matrix:
+  rows: 3
+  cols: 3
+  data: [247.65907037430463, 0.0, 320.37536623037937, 0.0, 332.08200215534504, 255.51277752972905,
+    0.0, 0.0, 1.0]
+distortion_model: fisheye
+distortion_coefficients:
+  rows: 1
+  cols: 4
+  data: [-0.07380488551048359, -0.11709896238656871, 0.21099263475179564, -0.1902337875270016]
+rectification_matrix:
+  rows: 3
+  cols: 3
+  data: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+projection_matrix:
+  rows: 3
+  cols: 4
+  data: [247.65907037430463, 0.0, 320.37536623037937, 0.0, 0.0, 332.08200215534504,
+    255.51277752972905, 0.0, 0.0, 0.0, 1.0, 0.0]

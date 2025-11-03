@@ -3,9 +3,15 @@
 *.code-workspace
 
 # ROS2 Bags
-Bag/
+data/rosbags/
 *.db3
+
+# Ignore YAML files except in specific directories
 *.yaml
+!resources/**/*.yaml
+!docker/**/*.yaml
+!data/results/*.yaml
+!hardware/**/*.yaml
 
 # Build artifacts
 build/

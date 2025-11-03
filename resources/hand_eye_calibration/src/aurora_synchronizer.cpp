@@ -90,8 +90,10 @@ std::optional<AuroraDataCached> AuroraSynchronizer::getClosestData(
     
     if (time_diff_ms > max_time_diff_ms_) {
         RCLCPP_WARN_THROTTLE(logger_, *rclcpp::Clock::make_shared(), 1000,
-                            "Aurora time difference too large: %.1fms > %dms",
-                            time_diff_ms, max_time_diff_ms_);
+                            "Aurora time difference too large: %.1fms > %dms | "
+                            "image_time=%.6f, aurora_time=%.6f",
+                            time_diff_ms, max_time_diff_ms_,
+                            target_time.seconds(), closest->timestamp.seconds());
         
         std::lock_guard<std::mutex> stats_lock(stats_mutex_);
         stats_.failed_timeout++;

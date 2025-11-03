@@ -1,0 +1,74 @@
+hand_eye_calibrator:
+  ros__parameters:
+    # ===========================================
+    # TOPICS & FRAMES
+    # ===========================================
+    
+    # Compressed image feed from endoscope camera
+    image_topic: "/endoscope/image_raw/compressed"
+    
+    # TF frame hierarchy: aurora_base -> endo_aurora -> [calibration] -> endo_optical
+    parent_frame: "aurora_base"        # Fixed Aurora tracking reference
+    child_frame: "endo_aurora"         # Aurora sensor on endoscope
+    
+    # ===========================================
+    # CAMERA CALIBRATION
+    # ===========================================
+    
+    # Intrinsic calibration file (camera_matrix, distortion_coeffs, model)
+    # Generate with: ros2 run camera_calibration cameracalibrator
+    camera_calibration_file: "/root/calibration/camera_calibration_fisheye_1080p.yaml"
+    
+    # ===========================================
+    # COLLECTION PARAMETERS
+    # ===========================================
+    
+    max_samples: 400                   # Total samples to collect
+    final_poses: 20                    # Best samples used for calibration (diversity + quality)
+    max_error_threshold: 0.05          # Max acceptable AX=XB error (m) - surgical precision
+    max_pose_age_ms: 20                # Max time diff for Aurora-image sync (ms)
+    aurora_buffer_size: 5000           # Circular buffer size for Aurora poses
+    
+    # ===========================================
+    # CHESSBOARD PATTERN
+    # ===========================================
+    
+    chessboard_rows: 10                 # Internal corners (not squares!)
+    chessboard_cols: 8
+    chessboard_square_size: 0.003     # Physical square size (m) - measure with calipers
+    
+    # Object points mode:
+    #   false = ideal planar grid (Z=0, perfect spacing)
+    #   true  = measured 3D coords from Aurora (accounts for warping/errors)
+    use_measured_object_points: true
+    measured_points_file: "/workspace/src/hand_eye_calibration/config/chess_11x9_3mm_inter.yaml"
+    
+    # ===========================================
+    # CALIBRATION METHOD
+    # ===========================================
+    
+    # Solver algorithm (0=TSAI, 1=PARK, 2=HORAUD, 3=ANDREFF, 4=DANIILIDIS)
+    # TSAI: Fast, robust, general use | PARK: Slower, more accurate
+    calibration_method: 0
+    
+    # ===========================================
+    # DIVERSITY FILTERING
+    # ===========================================
+    
+    # Reject samples too similar to previous ones (ensures spatial coverage)
+    min_movement_threshold: 0.01       # Min translation between samples (m) - 10mm for endoscope
+    min_rotation_threshold: 0.26       # Min rotation between samples (rad) - ~15° for diversity
+    
+    # ===========================================
+    # OUTPUT
+    # ===========================================
+    
+    save_result: true                  # Save calibration to timestamped YAML
+    result_frame_id: "endo_aurora"     # Source frame (Aurora sensor)
+    target_frame_id: "endo_optical"    # Target frame (camera optical center)
+    
+    # ===========================================
+    # DEBUG
+    # ===========================================
+    
+    verbose: true                      # Detailed logging (per-sample metrics, timing)

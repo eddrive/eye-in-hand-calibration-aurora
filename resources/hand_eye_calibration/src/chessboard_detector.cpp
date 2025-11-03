@@ -149,16 +149,16 @@ bool ChessboardDetector::loadMeasuredObjectPoints(const std::string& filepath) {
         }
         
         // Log statistics
-        float min_z = object_points_[0].z;
-        float max_z = object_points_[0].z;
+        float min_x = object_points_[0].x;
+        float max_x = object_points_[0].x;
         for (const auto& pt : object_points_) {
-            min_z = std::min(min_z, pt.z);
-            max_z = std::max(max_z, pt.z);
+            min_x = std::min(min_x, pt.x);
+            max_x = std::max(max_x, pt.x);
         }
-        
+
         RCLCPP_INFO(logger_, "Loaded %zu measured object points", object_points_.size());
-        RCLCPP_INFO(logger_, "Z range: [%.6f, %.6f] m (planarity deviation: %.6f m)",
-                    min_z, max_z, max_z - min_z);
+        RCLCPP_INFO(logger_, "X range: [%.6f, %.6f] m (planarity deviation: %.6f m)",
+                    min_x, max_x, max_x - min_x);
         
         return true;
         

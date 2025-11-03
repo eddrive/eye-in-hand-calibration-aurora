@@ -57,7 +57,7 @@ struct CalibrationConfig {
         config.image_topic = node->declare_parameter<std::string>(
             "image_topic", "/endoscope/image_raw/compressed");
         config.aurora_topic = node->declare_parameter<std::string>(
-            "aurora_topic", "/aurora_data");
+            "aurora_topic", "/aurora_data_sensor0");
         
         // Camera calibration
         config.camera_calibration_file = node->declare_parameter<std::string>(
