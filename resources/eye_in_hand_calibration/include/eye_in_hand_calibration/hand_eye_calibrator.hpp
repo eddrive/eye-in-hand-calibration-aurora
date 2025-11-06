@@ -1,23 +1,23 @@
-#ifndef HAND_EYE_CALIBRATION_HAND_EYE_CALIBRATOR_HPP
-#define HAND_EYE_CALIBRATION_HAND_EYE_CALIBRATOR_HPP
+#ifndef EYE_IN_HAND_CALIBRATION_HAND_EYE_CALIBRATOR_HPP
+#define EYE_IN_HAND_CALIBRATION_HAND_EYE_CALIBRATOR_HPP
 
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/compressed_image.hpp>
 #include <aurora_ndi_ros2_driver/msg/aurora_data.hpp>
 
-#include "hand_eye_calibration/calibration_config.hpp"
-#include "hand_eye_calibration/chessboard_detector.hpp"
-#include "hand_eye_calibration/pose_estimator.hpp"
-#include "hand_eye_calibration/aurora_synchronizer.hpp"
-#include "hand_eye_calibration/sample_manager.hpp"
-#include "hand_eye_calibration/calibration_solver.hpp"
+#include "eye_in_hand_calibration/calibration_config.hpp"
+#include "eye_in_hand_calibration/chessboard_detector.hpp"
+#include "eye_in_hand_calibration/pose_estimator.hpp"
+#include "eye_in_hand_calibration/aurora_synchronizer.hpp"
+#include "eye_in_hand_calibration/sample_manager.hpp"
+#include "eye_in_hand_calibration/calibration_solver.hpp"
 
 #include <queue>
 #include <thread>
 #include <atomic>
 #include <condition_variable>
 
-namespace hand_eye_calibration {
+namespace eye_in_hand_calibration {
 
 /**
  * @brief Image processing task for worker threads
@@ -77,14 +77,15 @@ private:
     
     // ========== State ==========
     std::atomic<bool> collection_complete_;
+    std::atomic<bool> calibration_started_;
     std::atomic<int> total_images_processed_;
     std::atomic<int> successful_detections_;
     std::atomic<int> samples_saved_;
     std::atomic<int> images_dropped_;
-    
+
     Eigen::Matrix4d final_transformation_;
 };
 
-} // namespace hand_eye_calibration
+} // namespace eye_in_hand_calibration
 
-#endif // HAND_EYE_CALIBRATION_HAND_EYE_CALIBRATOR_HPP
+#endif // EYE_IN_HAND_CALIBRATION_HAND_EYE_CALIBRATOR_HPP

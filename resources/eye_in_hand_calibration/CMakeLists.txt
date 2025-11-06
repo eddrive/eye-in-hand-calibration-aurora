@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(hand_eye_calibration)
+project(eye_in_hand_calibration)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
@@ -41,7 +41,7 @@ include_directories(
 # ========================================
 # BUILD LIBRARY
 # ========================================
-add_library(hand_eye_calibration_lib
+add_library(eye_in_hand_calibration_lib
   src/chessboard_detector.cpp
   src/pose_estimator.cpp
   src/aurora_synchronizer.cpp
@@ -50,18 +50,18 @@ add_library(hand_eye_calibration_lib
   src/hand_eye_calibrator.cpp
 )
 
-target_include_directories(hand_eye_calibration_lib PUBLIC
+target_include_directories(eye_in_hand_calibration_lib PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
 
-target_link_libraries(hand_eye_calibration_lib
+target_link_libraries(eye_in_hand_calibration_lib
   ${OpenCV_LIBRARIES}
   ${YAML_CPP_LIBRARIES}
   Eigen3::Eigen
 )
 
-ament_target_dependencies(hand_eye_calibration_lib
+ament_target_dependencies(eye_in_hand_calibration_lib
   rclcpp
   sensor_msgs
   geometry_msgs
@@ -80,7 +80,7 @@ add_executable(hand_eye_calibrator_node
 )
 
 target_link_libraries(hand_eye_calibrator_node
-  hand_eye_calibration_lib
+  eye_in_hand_calibration_lib
 )
 
 ament_target_dependencies(hand_eye_calibrator_node
@@ -91,7 +91,7 @@ ament_target_dependencies(hand_eye_calibrator_node
 # INSTALL
 # ========================================
 # Install library
-install(TARGETS hand_eye_calibration_lib
+install(TARGETS eye_in_hand_calibration_lib
   EXPORT export_${PROJECT_NAME}
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
@@ -125,7 +125,7 @@ install(DIRECTORY
 # EXPORT
 # ========================================
 ament_export_include_directories(include)
-ament_export_libraries(hand_eye_calibration_lib)
+ament_export_libraries(eye_in_hand_calibration_lib)
 ament_export_dependencies(
   rclcpp
   sensor_msgs
@@ -150,7 +150,7 @@ if(BUILD_TESTING)
   # Optional: Add unit tests
   # find_package(ament_cmake_gtest REQUIRED)
   # ament_add_gtest(test_chessboard_detector test/test_chessboard_detector.cpp)
-  # target_link_libraries(test_chessboard_detector hand_eye_calibration_lib)
+  # target_link_libraries(test_chessboard_detector eye_in_hand_calibration_lib)
 endif()
 
 ament_package()

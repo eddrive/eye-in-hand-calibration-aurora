@@ -120,7 +120,7 @@ RUN echo "Cache bust: $CACHEBUST" && \
     cat msg/AuroraData.msg
 
 # Copy ROS2 package
-COPY ../resources/hand_eye_calibration $COLCON_WS/src/hand_eye_calibration
+COPY ../resources/eye_in_hand_calibration $COLCON_WS/src/eye_in_hand_calibration
 
 # Copy resources
 COPY ../resources/calibration /root/calibration
@@ -147,7 +147,7 @@ COPY ../resources/calibration/camera_params_480p.yaml /usr/local/bin/camera_para
 COPY ../resources/calibration/camera_params_1080p.yaml /usr/local/bin/camera_params_1080p.yaml
 
 # Copy chessboards measured_points
-COPY ../hardware/chessboards/measured_points $COLCON_WS/src/hand_eye_calibration/config
+COPY ../hardware/chessboards/measured_points $COLCON_WS/src/eye_in_hand_calibration/config
 
 
 # Copy and setup entrypoint script

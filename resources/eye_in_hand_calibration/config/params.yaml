@@ -23,7 +23,7 @@ hand_eye_calibrator:
     # COLLECTION PARAMETERS
     # ===========================================
     
-    max_samples: 400                   # Total samples to collect
+    max_samples: 50                   # Total samples to collect
     final_poses: 20                    # Best samples used for calibration (diversity + quality)
     max_error_threshold: 0.05          # Max acceptable AX=XB error (m) - surgical precision
     max_pose_age_ms: 20                # Max time diff for Aurora-image sync (ms)
@@ -41,7 +41,7 @@ hand_eye_calibrator:
     #   false = ideal planar grid (Z=0, perfect spacing)
     #   true  = measured 3D coords from Aurora (accounts for warping/errors)
     use_measured_object_points: true
-    measured_points_file: "/workspace/src/hand_eye_calibration/config/chess_11x9_3mm_inter.yaml"
+    measured_points_file: "/workspace/src/eye_in_hand_calibration/config/chess_11x9_3mm_inter.yaml"
     
     # ===========================================
     # CALIBRATION METHOD
@@ -54,10 +54,19 @@ hand_eye_calibrator:
     # ===========================================
     # DIVERSITY FILTERING
     # ===========================================
-    
+
     # Reject samples too similar to previous ones (ensures spatial coverage)
     min_movement_threshold: 0.01       # Min translation between samples (m) - 10mm for endoscope
     min_rotation_threshold: 0.26       # Min rotation between samples (rad) - ~15° for diversity
+
+    # Advanced filtering (based on handeye_from_yaml.py)
+    max_reproj_error_filter: 0.8       # Max reprojection error for final selection (px)
+    max_sensor_camera_distance: 0.020  # Max sensor-camera distance (m) - 20mm for endoscope
+    max_movement_ratio: 2.3            # Max ratio between sensor/camera movement
+    max_rotation_diff_deg: 25.0        # Max difference in rotation angles (degrees)
+    use_iterative_refinement: true     # Enable iterative pair selection based on AX≈XB error
+    target_pairs: 20                   # Target number of pairs after refinement
+    max_refinement_iterations: 50      # Maximum refinement iterations
     
     # ===========================================
     # OUTPUT

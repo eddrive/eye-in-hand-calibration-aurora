@@ -1,17 +1,18 @@
-#include "hand_eye_calibration/hand_eye_calibrator.hpp"
+#include "eye_in_hand_calibration/hand_eye_calibrator.hpp"
 #include <cv_bridge/cv_bridge.h>
 #include <filesystem>
 #include <ctime>
 #include <iomanip>
 #include <sstream>
 
-namespace hand_eye_calibration {
+namespace eye_in_hand_calibration {
 
 HandEyeCalibrator::HandEyeCalibrator() : Node("hand_eye_calibrator") {
     RCLCPP_INFO(this->get_logger(), "Initializing Hand-Eye Calibrator...");
     
     // Initialize state
     collection_complete_ = false;
+    calibration_started_ = false;
     total_images_processed_ = 0;
     successful_detections_ = 0;
     samples_saved_ = 0;
@@ -239,16 +240,22 @@ void HandEyeCalibrator::processingThreadFunction() {
         }
         
         processImage(task);
-        
+
         // Check if collection is complete
         if (samples_saved_ >= config_.max_samples) {
-            collection_complete_ = true;
-            RCLCPP_INFO(this->get_logger(),
-                "\n🎉 COLLECTION COMPLETE! Collected %d samples",
-                samples_saved_.load());
-            RCLCPP_INFO(this->get_logger(), "Starting selection and calibration...");
-            
-            selectBestSamplesAndCalibrate();
+            // Use atomic compare-and-swap to ensure only ONE thread runs calibration
+            bool expected = false;
+            if (calibration_started_.compare_exchange_strong(expected, true)) {
+                // This thread won the race - it will perform calibration
+                collection_complete_ = true;
+                RCLCPP_INFO(this->get_logger(),
+                    "\n🎉 COLLECTION COMPLETE! Collected %d samples",
+                    samples_saved_.load());
+                RCLCPP_INFO(this->get_logger(), "Starting selection and calibration...");
+
+                selectBestSamplesAndCalibrate();
+            }
+            // All threads exit after calibration is started
             break;
         }
     }
@@ -391,43 +398,85 @@ void HandEyeCalibrator::processImage(const ImageProcessingTask& task) {
 
 void HandEyeCalibrator::selectBestSamplesAndCalibrate() {
     // Create output directory
-    std::string output_dir = "/workspace/src/hand_eye_calibration/output";
+    std::string output_dir = "/workspace/src/eye_in_hand_calibration/output";
     if (!std::filesystem::exists(output_dir)) {
         std::filesystem::create_directories(output_dir);
     }
-    
+
     // Generate timestamp for filenames
     auto now = std::time(nullptr);
     auto local_time = std::localtime(&now);
     std::stringstream timestamp;
     timestamp << std::put_time(local_time, "%Y%m%d_%H%M%S");
-    
-    // Select diverse samples
-    auto selected = sample_manager_->selectDiverseSamples(config_.final_poses);
-    
+
+    // ========================================
+    // ADVANCED FILTERING (Python script logic)
+    // ========================================
+    auto selected = sample_manager_->selectSamplesAdvanced(
+        config_.max_reproj_error_filter,
+        config_.max_sensor_camera_distance,
+        config_.max_movement_ratio,
+        config_.max_rotation_diff_deg
+    );
+
     if (selected.empty()) {
-        RCLCPP_ERROR(this->get_logger(), "No samples selected!");
+        RCLCPP_ERROR(this->get_logger(), "No samples passed advanced filtering!");
         return;
     }
-    
+
+    // ========================================
+    // ITERATIVE REFINEMENT (optional)
+    // ========================================
+    if (config_.use_iterative_refinement &&
+        static_cast<int>(selected.size()) - 1 > config_.target_pairs) {
+
+        RCLCPP_INFO(this->get_logger(),
+            "Applying iterative refinement to reduce from %zu to %d pairs",
+            selected.size() - 1, config_.target_pairs);
+
+        selected = solver_->refineByError(
+            sample_manager_->getSamples(),
+            selected,
+            config_.target_pairs,
+            config_.max_refinement_iterations
+        );
+    }
+
+    if (selected.empty()) {
+        RCLCPP_ERROR(this->get_logger(), "No samples after refinement!");
+        return;
+    }
+
     // Save all collected samples
-    std::string all_samples_file = output_dir + "/collected_samples_" + 
+    std::string all_samples_file = output_dir + "/collected_samples_" +
                                    timestamp.str() + ".yaml";
     sample_manager_->saveAllSamples(all_samples_file);
-    
-    // Perform calibration
+
+    // Perform final calibration
+    RCLCPP_INFO(this->get_logger(),
+        "\n========== FINAL CALIBRATION ==========");
+    RCLCPP_INFO(this->get_logger(), "Using %zu samples (%zu pairs)",
+               selected.size(), selected.size() - 1);
+
     auto result = solver_->solve(sample_manager_->getSamples(), selected);
-    
+
     if (!result.success) {
         RCLCPP_ERROR(this->get_logger(), "❌ Calibration failed!");
         return;
     }
-    
+
     RCLCPP_INFO(this->get_logger(), "✅ Calibration successful!");
-    
+
+    // Compute and print absolute errors (matching Python script)
+    solver_->computeAndPrintAbsoluteErrors(
+        sample_manager_->getSamples(),
+        selected,
+        result.transformation
+    );
+
     // Save calibration result
     if (config_.save_result) {
-        std::string result_file = output_dir + "/hand_eye_calibration_" +
+        std::string result_file = output_dir + "/eye_in_hand_calibration_" +
                                  timestamp.str() + ".yaml";
         solver_->saveResult(
             result_file,
@@ -438,14 +487,14 @@ void HandEyeCalibrator::selectBestSamplesAndCalibrate() {
             successful_detections_.load()
         );
     }
-    
+
     // Save selected pose pairs for RViz visualization
     std::string poses_file = output_dir + "/selected_pose_pairs_" +
                             timestamp.str() + ".yaml";
     sample_manager_->savePosePairs(poses_file, selected);
-    
+
     // Store final transformation
     final_transformation_ = result.transformation;
 }
 
-} // namespace hand_eye_calibration
+} // namespace eye_in_hand_calibration

@@ -1,5 +1,5 @@
-#ifndef HAND_EYE_CALIBRATION_SAMPLE_MANAGER_HPP
-#define HAND_EYE_CALIBRATION_SAMPLE_MANAGER_HPP
+#ifndef EYE_IN_HAND_CALIBRATION_SAMPLE_MANAGER_HPP
+#define EYE_IN_HAND_CALIBRATION_SAMPLE_MANAGER_HPP
 
 #include <Eigen/Dense>
 #include <vector>
@@ -7,7 +7,7 @@
 #include <mutex>
 #include <rclcpp/rclcpp.hpp>
 
-namespace hand_eye_calibration {
+namespace eye_in_hand_calibration {
 
 /**
  * @brief Calibration sample containing synchronized poses
@@ -71,11 +71,24 @@ public:
                   double distance_to_target);
     
     /**
-     * @brief Select diverse samples for calibration
+     * @brief Select diverse samples for calibration (old greedy method)
      * @param num_samples Number of samples to select
      * @return Indices of selected samples
      */
     std::vector<size_t> selectDiverseSamples(int num_samples);
+
+    /**
+     * @brief Select samples using advanced filtering (Python script logic)
+     * @param max_reproj_error Maximum reprojection error (pixels)
+     * @param max_sensor_camera_dist Maximum sensor-camera distance (meters)
+     * @param max_movement_ratio Maximum ratio between sensor/camera movement
+     * @param max_rotation_diff Maximum rotation difference (degrees)
+     * @return Indices of selected samples (in order)
+     */
+    std::vector<size_t> selectSamplesAdvanced(double max_reproj_error,
+                                               double max_sensor_camera_dist,
+                                               double max_movement_ratio,
+                                               double max_rotation_diff);
     
     /**
      * @brief Get all collected samples
@@ -177,6 +190,6 @@ private:
     rclcpp::Logger logger_;
 };
 
-} // namespace hand_eye_calibration
+} // namespace eye_in_hand_calibration
 
-#endif // HAND_EYE_CALIBRATION_SAMPLE_MANAGER_HPP
+#endif // EYE_IN_HAND_CALIBRATION_SAMPLE_MANAGER_HPP

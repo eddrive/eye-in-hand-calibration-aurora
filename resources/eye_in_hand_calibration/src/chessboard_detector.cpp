@@ -1,4 +1,4 @@
-#include "hand_eye_calibration/chessboard_detector.hpp"
+#include "eye_in_hand_calibration/chessboard_detector.hpp"
 #include <opencv2/imgproc.hpp>
 #include <opencv2/calib3d.hpp>
 #include <yaml-cpp/yaml.h>
@@ -7,7 +7,7 @@
 #include <numeric>
 #include <cmath>
 
-namespace hand_eye_calibration {
+namespace eye_in_hand_calibration {
 
 // Constructor 1: Ideal grid points
 ChessboardDetector::ChessboardDetector(const cv::Size& pattern_size,
@@ -342,4 +342,4 @@ void ChessboardDetector::drawCorners(cv::Mat& image,
     }
 }
 
-} // namespace hand_eye_calibration
+} // namespace eye_in_hand_calibration

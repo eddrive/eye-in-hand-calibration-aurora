@@ -1,11 +1,11 @@
-#ifndef HAND_EYE_CALIBRATION_CHESSBOARD_DETECTOR_HPP
-#define HAND_EYE_CALIBRATION_CHESSBOARD_DETECTOR_HPP
+#ifndef EYE_IN_HAND_CALIBRATION_CHESSBOARD_DETECTOR_HPP
+#define EYE_IN_HAND_CALIBRATION_CHESSBOARD_DETECTOR_HPP
 
 #include <opencv2/core.hpp>
 #include <vector>
 #include <rclcpp/rclcpp.hpp>
 
-namespace hand_eye_calibration {
+namespace eye_in_hand_calibration {
 
 /**
  * @brief Detector for chessboard calibration patterns
@@ -139,6 +139,6 @@ private:
     rclcpp::Logger logger_;
 };
 
-} // namespace hand_eye_calibration
+} // namespace eye_in_hand_calibration
 
-#endif // HAND_EYE_CALIBRATION_CHESSBOARD_DETECTOR_HPP
+#endif // EYE_IN_HAND_CALIBRATION_CHESSBOARD_DETECTOR_HPP

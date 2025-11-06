@@ -1,10 +1,10 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>hand_eye_calibration</name>
+  <name>eye_in_hand_calibration</name>
   <version>1.0.0</version>
   <description>
-    Online hand-eye calibration for endoscope with electromagnetic tracker.
+    Online eye-in-hand calibration for endoscope with electromagnetic tracker.
     Performs chessboard detection, pose estimation, and AX=XB calibration.
   </description>
   

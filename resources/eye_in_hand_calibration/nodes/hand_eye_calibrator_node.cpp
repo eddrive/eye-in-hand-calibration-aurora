@@ -1,10 +1,10 @@
 #include <rclcpp/rclcpp.hpp>
-#include "hand_eye_calibration/hand_eye_calibrator.hpp"
+#include "eye_in_hand_calibration/hand_eye_calibrator.hpp"
 
 int main(int argc, char** argv) {
     rclcpp::init(argc, argv);
     
-    auto node = std::make_shared<hand_eye_calibration::HandEyeCalibrator>();
+    auto node = std::make_shared<eye_in_hand_calibration::HandEyeCalibrator>();
     
     RCLCPP_INFO(rclcpp::get_logger("main"), "Starting Hand-Eye Calibrator Node");
     

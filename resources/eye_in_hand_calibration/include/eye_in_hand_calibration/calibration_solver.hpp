@@ -1,14 +1,14 @@
-#ifndef HAND_EYE_CALIBRATION_CALIBRATION_SOLVER_HPP
-#define HAND_EYE_CALIBRATION_CALIBRATION_SOLVER_HPP
+#ifndef EYE_IN_HAND_CALIBRATION_CALIBRATION_SOLVER_HPP
+#define EYE_IN_HAND_CALIBRATION_CALIBRATION_SOLVER_HPP
 
-#include "hand_eye_calibration/sample_manager.hpp"
+#include "eye_in_hand_calibration/sample_manager.hpp"
 #include <Eigen/Dense>
 #include <opencv2/calib3d.hpp>
 #include <vector>
 #include <string>
 #include <rclcpp/rclcpp.hpp>
 
-namespace hand_eye_calibration {
+namespace eye_in_hand_calibration {
 
 /**
  * @brief Calibration result with quality metrics
@@ -62,10 +62,12 @@ public:
      * @brief Perform hand-eye calibration
      * @param samples All calibration samples
      * @param selected_indices Indices of samples to use
+     * @param verbose Enable detailed logging (default: true)
      * @return Calibration result with transformation and metrics
      */
     CalibrationResult solve(const std::vector<CalibrationSample>& samples,
-                           const std::vector<size_t>& selected_indices);
+                           const std::vector<size_t>& selected_indices,
+                           bool verbose = true);
     
     /**
      * @brief Evaluate calibration quality
@@ -109,7 +111,37 @@ public:
      * @brief Get method name as string
      */
     static std::string getMethodName(Method method);
-    
+
+    /**
+     * @brief Iterative refinement: removes worst samples based on AX≈XB error
+     * @param samples All calibration samples
+     * @param indices Current sample indices
+     * @param target_pairs Target number of pairs (samples - 1)
+     * @param max_iterations Maximum refinement iterations
+     * @return Refined list of sample indices
+     */
+    std::vector<size_t> refineByError(const std::vector<CalibrationSample>& samples,
+                                       std::vector<size_t> indices,
+                                       int target_pairs,
+                                       int max_iterations);
+
+    /**
+     * @brief Compute and print absolute errors using direct prediction comparison
+     *
+     * Matches Python script's compute_errors_alternative() method:
+     * - For each sample: T_predicted = T_sensor @ X, compare with T_measured
+     * - Rotation error: angle between R_pred and R_meas (degrees)
+     * - Translation error: ||t_meas - t_pred|| (mm)
+     * - Prints statistics: min, median, mean, std, rms, max, IQR, quartiles
+     *
+     * @param samples All calibration samples
+     * @param selected_indices Indices of samples used
+     * @param transformation Computed hand-eye transformation X
+     */
+    void computeAndPrintAbsoluteErrors(const std::vector<CalibrationSample>& samples,
+                                        const std::vector<size_t>& selected_indices,
+                                        const Eigen::Matrix4d& transformation);
+
 private:
     /**
      * @brief Convert OpenCV method enum
@@ -164,6 +196,6 @@ private:
     rclcpp::Logger logger_;
 };
 
-} // namespace hand_eye_calibration
+} // namespace eye_in_hand_calibration
 
-#endif // HAND_EYE_CALIBRATION_CALIBRATION_SOLVER_HPP
+#endif // EYE_IN_HAND_CALIBRATION_CALIBRATION_SOLVER_HPP

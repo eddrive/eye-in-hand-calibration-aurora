@@ -1,12 +1,12 @@
-#ifndef HAND_EYE_CALIBRATION_POSE_ESTIMATOR_HPP
-#define HAND_EYE_CALIBRATION_POSE_ESTIMATOR_HPP
+#ifndef EYE_IN_HAND_CALIBRATION_POSE_ESTIMATOR_HPP
+#define EYE_IN_HAND_CALIBRATION_POSE_ESTIMATOR_HPP
 
 #include <opencv2/core.hpp>
 #include <Eigen/Dense>
 #include <vector>
 #include <rclcpp/rclcpp.hpp>
 
-namespace hand_eye_calibration {
+namespace eye_in_hand_calibration {
 
 /**
  * @brief Estimates camera pose from 2D-3D correspondences
@@ -147,6 +147,6 @@ private:
     rclcpp::Logger logger_;
 };
 
-} // namespace hand_eye_calibration
+} // namespace eye_in_hand_calibration
 
-#endif // HAND_EYE_CALIBRATION_POSE_ESTIMATOR_HPP
+#endif // EYE_IN_HAND_CALIBRATION_POSE_ESTIMATOR_HPP

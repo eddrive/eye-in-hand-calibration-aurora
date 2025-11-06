@@ -1,5 +1,5 @@
-#ifndef HAND_EYE_CALIBRATION_AURORA_SYNCHRONIZER_HPP
-#define HAND_EYE_CALIBRATION_AURORA_SYNCHRONIZER_HPP
+#ifndef EYE_IN_HAND_CALIBRATION_AURORA_SYNCHRONIZER_HPP
+#define EYE_IN_HAND_CALIBRATION_AURORA_SYNCHRONIZER_HPP
 
 #include <aurora_ndi_ros2_driver/msg/aurora_data.hpp>
 #include <Eigen/Dense>
@@ -9,7 +9,7 @@
 #include <mutex>
 #include <optional>
 
-namespace hand_eye_calibration {
+namespace eye_in_hand_calibration {
 
 /**
  * @brief Cached Aurora data with timestamp
@@ -136,6 +136,6 @@ private:
     rclcpp::Logger logger_;
 };
 
-} // namespace hand_eye_calibration
+} // namespace eye_in_hand_calibration
 
-#endif // HAND_EYE_CALIBRATION_AURORA_SYNCHRONIZER_HPP
+#endif // EYE_IN_HAND_CALIBRATION_AURORA_SYNCHRONIZER_HPP

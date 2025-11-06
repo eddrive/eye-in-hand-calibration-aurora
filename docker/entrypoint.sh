@@ -36,7 +36,7 @@ fi
 # CHECK REQUIRED PACKAGES
 # ===========================================
 echo "Checking for installed packages..."
-required_packages=("aurora_ndi_ros2_driver" "hand_eye_calibration" "usb_cam")
+required_packages=("aurora_ndi_ros2_driver" "eye_in_hand_calibration" "usb_cam")
 for pkg in "${required_packages[@]}"; do
     if ros2 pkg list 2>/dev/null | grep -q "^${pkg}$"; then
         echo "✓ Package '$pkg' found"
@@ -84,7 +84,8 @@ ros2 run usb_cam usb_cam_node_exe --ros-args \
     --params-file "${PARAMS_FILE_1080}" \
     -r image_raw:="/endoscope/image_raw" \
     -r camera_info:="/endoscope/camera_info" \
-    -r image_raw/compressed:="/endoscope/image_raw/compressed" &
+    -r image_raw/compressed:="/endoscope/image_raw/compressed" \
+    > /dev/null 2>&1 &
 
 CAMERA_PID=$!
 echo "Camera node started (PID: $CAMERA_PID)"
@@ -98,13 +99,37 @@ sleep 3
 echo "=========================================="
 echo "Starting Aurora tracking system..."
 echo "=========================================="
-ros2 launch aurora_ndi_ros2_driver aurora_pub.launch.py &
+ros2 launch aurora_ndi_ros2_driver aurora_pub.launch.py > /dev/null 2>&1 &
 
 AURORA_PID=$!
 echo "Aurora node started (PID: $AURORA_PID)"
 
 # Wait for Aurora to initialize
 sleep 2
+
+# ===========================================
+# LAUNCH RQT IMAGE VIEW
+# ===========================================
+echo "=========================================="
+echo "Starting rqt_image_view..."
+echo "=========================================="
+
+# Check if the compressed image topic exists
+if ros2 topic list 2>/dev/null | grep -q "/endoscope/image_raw/compressed"; then
+    echo "Topic /endoscope/image_raw/compressed found, launching with preset topic"
+    ros2 run rqt_image_view rqt_image_view --ros-args \
+        -p image_topic:="/endoscope/image_raw/compressed" \
+        > /dev/null 2>&1 &
+else
+    echo "Topic not yet available, launching without preset (select manually from dropdown)"
+    ros2 run rqt_image_view rqt_image_view > /dev/null 2>&1 &
+fi
+
+RQT_PID=$!
+echo "rqt_image_view started (PID: $RQT_PID)"
+
+# Wait for rqt to initialize
+sleep 1
 
 # ===========================================
 # CLEANUP HANDLER
@@ -114,17 +139,22 @@ cleanup() {
     echo "=========================================="
     echo "Shutting down nodes..."
     echo "=========================================="
-    
+
     if [ ! -z "$CAMERA_PID" ]; then
         echo "Stopping camera node (PID: $CAMERA_PID)..."
         kill $CAMERA_PID 2>/dev/null || true
     fi
-    
+
     if [ ! -z "$AURORA_PID" ]; then
         echo "Stopping Aurora node (PID: $AURORA_PID)..."
         kill $AURORA_PID 2>/dev/null || true
     fi
-    
+
+    if [ ! -z "$RQT_PID" ]; then
+        echo "Stopping rqt_image_view (PID: $RQT_PID)..."
+        kill $RQT_PID 2>/dev/null || true
+    fi
+
     echo "Cleanup complete."
     exit 0
 }
@@ -141,6 +171,7 @@ echo "All nodes started successfully!"
 echo "=========================================="
 echo "Camera PID: $CAMERA_PID"
 echo "Aurora PID: $AURORA_PID"
+echo "rqt_image_view PID: $RQT_PID"
 echo ""
 echo "Available topics:"
 ros2 topic list | grep -E "(endoscope|aurora)" || echo "  (waiting for topics...)"

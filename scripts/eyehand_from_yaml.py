@@ -653,9 +653,8 @@ def compute_errors_alternative(samples: List[Dict], indices: List[int], X: np.nd
     
     def _stats(arr):
         if arr.size == 0:
-            return dict(min=np.nan, median=np.nan, mean=np.nan, std=np.nan, 
-                       rms=np.nan, max=np.nan, count=0, iqr=np.nan, q25=np.nan, q75=np.nan)
-        q75, q25 = np.percentile(arr, [75, 25])
+            return dict(min=np.nan, median=np.nan, mean=np.nan, std=np.nan,
+                       rms=np.nan, max=np.nan, count=0)
         return dict(
             min=float(arr.min()),
             median=float(np.median(arr)),
@@ -664,9 +663,6 @@ def compute_errors_alternative(samples: List[Dict], indices: List[int], X: np.nd
             rms=float(np.sqrt((arr**2).mean())),
             max=float(arr.max()),
             count=int(arr.size),
-            iqr=float(q75 - q25),
-            q25=float(q25),
-            q75=float(q75),
         )
     
     return {
@@ -741,22 +737,18 @@ def save_results(filename: Path, X: np.ndarray, stats_axb: Dict, stats_pred: Dic
         f.write("Prediction Errors (Direct comparison in Aurora frame):\n")
         f.write("="*70 + "\n")
         f.write(f"  Number of samples:   {stats_pred['rotation_deg']['count']}\n")
-        f.write(f"  Rotation RMS:        {stats_pred['rotation_deg']['rms']:.4f} deg\n")
+        f.write(f"  Rotation min:        {stats_pred['rotation_deg']['min']:.4f} deg\n")
+        f.write(f"  Rotation median:     {stats_pred['rotation_deg']['median']:.4f} deg\n")
+        f.write(f"  Rotation max:        {stats_pred['rotation_deg']['max']:.4f} deg\n")
         f.write(f"  Rotation mean:       {stats_pred['rotation_deg']['mean']:.4f} deg\n")
         f.write(f"  Rotation std:        {stats_pred['rotation_deg']['std']:.4f} deg\n")
-        f.write(f"  Rotation median:     {stats_pred['rotation_deg']['median']:.4f} deg\n")
-        f.write(f"  Rotation IQR:        {stats_pred['rotation_deg']['iqr']:.4f} deg\n")
-        f.write(f"  Rotation q25:        {stats_pred['rotation_deg']['q25']:.4f} deg\n")
-        f.write(f"  Rotation q75:        {stats_pred['rotation_deg']['q75']:.4f} deg\n")
-        f.write(f"  Rotation max:        {stats_pred['rotation_deg']['max']:.4f} deg\n")
-        f.write(f"  Translation RMS:     {stats_pred['translation_mm']['rms']:.3f} mm\n")
+        f.write(f"  Rotation RMS:        {stats_pred['rotation_deg']['rms']:.4f} deg\n")
+        f.write(f"  Translation min:     {stats_pred['translation_mm']['min']:.3f} mm\n")
+        f.write(f"  Translation median:  {stats_pred['translation_mm']['median']:.3f} mm\n")
+        f.write(f"  Translation max:     {stats_pred['translation_mm']['max']:.3f} mm\n")
         f.write(f"  Translation mean:    {stats_pred['translation_mm']['mean']:.3f} mm\n")
         f.write(f"  Translation std:     {stats_pred['translation_mm']['std']:.3f} mm\n")
-        f.write(f"  Translation median:  {stats_pred['translation_mm']['median']:.3f} mm\n")
-        f.write(f"  Translation IQR:     {stats_pred['translation_mm']['iqr']:.3f} mm\n")
-        f.write(f"  Translation q25:     {stats_pred['translation_mm']['q25']:.3f} mm\n")
-        f.write(f"  Translation q75:     {stats_pred['translation_mm']['q75']:.3f} mm\n")
-        f.write(f"  Translation max:     {stats_pred['translation_mm']['max']:.3f} mm\n")
+        f.write(f"  Translation RMS:     {stats_pred['translation_mm']['rms']:.3f} mm\n")
         f.write("\n")
         f.write("="*70 + "\n")
 
@@ -1039,22 +1031,18 @@ def main():
 
     print("Camera prediction errors in Aurora frame:")
     print(f"  Samples evaluated:   {stats_pred['rotation_deg']['count']}")
-    print(f"  Rotation RMS:        {stats_pred['rotation_deg']['rms']:.4f} deg")
+    print(f"  Rotation min:        {stats_pred['rotation_deg']['min']:.4f} deg")
+    print(f"  Rotation median:     {stats_pred['rotation_deg']['median']:.4f} deg")
+    print(f"  Rotation max:        {stats_pred['rotation_deg']['max']:.4f} deg")
     print(f"  Rotation mean:       {stats_pred['rotation_deg']['mean']:.4f} deg")
     print(f"  Rotation std:        {stats_pred['rotation_deg']['std']:.4f} deg")
-    print(f"  Rotation median:     {stats_pred['rotation_deg']['median']:.4f} deg")
-    print(f"  Rotation IQR:        {stats_pred['rotation_deg']['iqr']:.4f} deg")
-    print(f"  Rotation q25:        {stats_pred['rotation_deg']['q25']:.4f} deg")
-    print(f"  Rotation q75:        {stats_pred['rotation_deg']['q75']:.4f} deg")
-    print(f"  Rotation max:        {stats_pred['rotation_deg']['max']:.4f} deg")
-    print(f"  Translation RMS:     {stats_pred['translation_mm']['rms']:.3f} mm")
+    print(f"  Rotation RMS:        {stats_pred['rotation_deg']['rms']:.4f} deg")
+    print(f"  Translation min:     {stats_pred['translation_mm']['min']:.3f} mm")
+    print(f"  Translation median:  {stats_pred['translation_mm']['median']:.3f} mm")
+    print(f"  Translation max:     {stats_pred['translation_mm']['max']:.3f} mm")
     print(f"  Translation mean:    {stats_pred['translation_mm']['mean']:.3f} mm")
     print(f"  Translation std:     {stats_pred['translation_mm']['std']:.3f} mm")
-    print(f"  Translation median:  {stats_pred['translation_mm']['median']:.3f} mm")
-    print(f"  Translation IQR:     {stats_pred['translation_mm']['iqr']:.3f} mm")
-    print(f"  Translation q25:     {stats_pred['translation_mm']['q25']:.3f} mm")
-    print(f"  Translation q75:     {stats_pred['translation_mm']['q75']:.3f} mm")
-    print(f"  Translation max:     {stats_pred['translation_mm']['max']:.3f} mm\n")
+    print(f"  Translation RMS:     {stats_pred['translation_mm']['rms']:.3f} mm\n")
 
     # Generate output file name with timestamp
     from datetime import datetime

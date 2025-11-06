@@ -1,12 +1,12 @@
-#ifndef HAND_EYE_CALIBRATION_CONFIG_HPP
-#define HAND_EYE_CALIBRATION_CONFIG_HPP
+#ifndef EYE_IN_HAND_CALIBRATION_CONFIG_HPP
+#define EYE_IN_HAND_CALIBRATION_CONFIG_HPP
 
 #include <string>
 #include <opencv2/core.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <yaml-cpp/yaml.h>
 
-namespace hand_eye_calibration {
+namespace eye_in_hand_calibration {
 
 struct CalibrationConfig {
     // ========== Topics ==========
@@ -37,7 +37,16 @@ struct CalibrationConfig {
     // ========== Diversity Filtering ==========
     double min_movement_threshold;  // meters
     double min_rotation_threshold;  // radians
-    
+
+    // ========== Advanced Filtering (Python script logic) ==========
+    double max_reproj_error_filter;     // pixels
+    double max_sensor_camera_distance;  // meters
+    double max_movement_ratio;          // dimensionless
+    double max_rotation_diff_deg;       // degrees
+    bool use_iterative_refinement;      // enable/disable
+    int target_pairs;                   // target number of pairs after refinement
+    int max_refinement_iterations;      // max iterations for refinement
+
     // ========== Calibration Method ==========
     int calibration_method;    // 0=TSAI, 1=PARK, 2=HORAUD, 3=ANDREFF, 4=DANIILIDIS
     
@@ -61,8 +70,8 @@ struct CalibrationConfig {
         
         // Camera calibration
         config.camera_calibration_file = node->declare_parameter<std::string>(
-            "camera_calibration_file", 
-            "/workspace/hand_eye_calibration/config/camera_calibration_fisheye_1080p.yaml");
+            "camera_calibration_file",
+            "/workspace/eye_in_hand_calibration/config/camera_calibration_fisheye_1080p.yaml");
         
         // Chessboard
         int rows = node->declare_parameter<int>("chessboard_rows", 9);
@@ -74,8 +83,8 @@ struct CalibrationConfig {
         config.use_measured_object_points = node->declare_parameter<bool>(
             "use_measured_object_points", false);
         config.measured_points_file = node->declare_parameter<std::string>(
-            "measured_points_file", 
-            "/workspace/hand_eye_calibration/config/chessboard_measured_points.yaml");
+            "measured_points_file",
+            "/workspace/eye_in_hand_calibration/config/chessboard_measured_points.yaml");
         
         
         // Collection
@@ -90,7 +99,16 @@ struct CalibrationConfig {
         // Diversity
         config.min_movement_threshold = node->declare_parameter<double>("min_movement_threshold", 0.015);
         config.min_rotation_threshold = node->declare_parameter<double>("min_rotation_threshold", 0.15);
-        
+
+        // Advanced filtering
+        config.max_reproj_error_filter = node->declare_parameter<double>("max_reproj_error_filter", 0.8);
+        config.max_sensor_camera_distance = node->declare_parameter<double>("max_sensor_camera_distance", 0.020);
+        config.max_movement_ratio = node->declare_parameter<double>("max_movement_ratio", 2.3);
+        config.max_rotation_diff_deg = node->declare_parameter<double>("max_rotation_diff_deg", 25.0);
+        config.use_iterative_refinement = node->declare_parameter<bool>("use_iterative_refinement", true);
+        config.target_pairs = node->declare_parameter<int>("target_pairs", 20);
+        config.max_refinement_iterations = node->declare_parameter<int>("max_refinement_iterations", 50);
+
         // Calibration
         config.calibration_method = node->declare_parameter<int>("calibration_method", 1);
         
@@ -135,6 +153,6 @@ private:
     }
 };
 
-} // namespace hand_eye_calibration
+} // namespace eye_in_hand_calibration
 
-#endif // HAND_EYE_CALIBRATION_CONFIG_HPP
+#endif // EYE_IN_HAND_CALIBRATION_CONFIG_HPP

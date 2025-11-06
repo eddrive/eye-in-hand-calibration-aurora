@@ -12,9 +12,9 @@ def generate_launch_description():
     config_file_arg = DeclareLaunchArgument(
         'config_file',
         default_value=PathJoinSubstitution([
-            FindPackageShare('hand_eye_calibration'),
+            FindPackageShare('eye_in_hand_calibration'),
             'config',
-            'hand_eye_calibrator.yaml'
+            'params.yaml'
         ]),
         description='Path to the configuration file'
     )
@@ -27,7 +27,7 @@ def generate_launch_description():
     
     # Hand-eye calibrator node
     hand_eye_calibrator_node = Node(
-        package='hand_eye_calibration',
+        package='eye_in_hand_calibration',
         executable='hand_eye_calibrator_node',
         name='hand_eye_calibrator',
         parameters=[
@@ -43,7 +43,7 @@ def generate_launch_description():
     return LaunchDescription([
         config_file_arg,
         use_sim_time_arg,  # ← AGGIUNTO
-        LogInfo(msg=['Starting Hand-Eye Calibration with config: ', LaunchConfiguration('config_file')]),
+        LogInfo(msg=['Starting Eye-in-Hand Calibration with config: ', LaunchConfiguration('config_file')]),
         LogInfo(msg=['use_sim_time: ', LaunchConfiguration('use_sim_time')]),  # ← AGGIUNTO
         hand_eye_calibrator_node
     ])

@@ -1,10 +1,10 @@
-#include "hand_eye_calibration/pose_estimator.hpp"
+#include "eye_in_hand_calibration/pose_estimator.hpp"
 #include <opencv2/calib3d.hpp>
 #include <opencv2/imgproc.hpp>
 #include <cmath>
 #include <numeric>
 
-namespace hand_eye_calibration {
+namespace eye_in_hand_calibration {
 
 PoseEstimator::PoseEstimator(const cv::Mat& camera_matrix,
                              const cv::Mat& dist_coeffs,
@@ -149,13 +149,7 @@ bool PoseEstimator::estimatePoseFisheye(const std::vector<cv::Point2f>& image_po
             RCLCPP_WARN(logger_, "All PnP methods failed for fisheye");
             return false;
         }
-        
-        // Sanity check: positive depth
-        if (tvec.at<double>(2) <= 0.0) {
-            RCLCPP_WARN(logger_, "Negative depth detected: tvec.z = %.3f", 
-                       tvec.at<double>(2));
-        }
-        
+
         return true;
         
     } catch (const cv::Exception& e) {
@@ -219,9 +213,13 @@ bool PoseEstimator::estimatePoseStandard(const std::vector<cv::Point2f>& image_p
                 rvec, tvec
             );
         }
-        
-        return success;
-        
+
+        if (!success) {
+            return false;
+        }
+
+        return true;
+
     } catch (const cv::Exception& e) {
         RCLCPP_ERROR(logger_, "Standard pose estimation failed: %s", e.what());
         return false;
@@ -350,4 +348,4 @@ bool PoseEstimator::validatePose(const cv::Mat& rvec,
     return true;
 }
 
-} // namespace hand_eye_calibration
+} // namespace eye_in_hand_calibration

@@ -1,4 +1,4 @@
-#include "hand_eye_calibration/sample_manager.hpp"
+#include "eye_in_hand_calibration/sample_manager.hpp"
 #include <yaml-cpp/yaml.h>
 #include <fstream>
 #include <algorithm>
@@ -6,7 +6,7 @@
 #include <cmath>
 #include <limits>
 
-namespace hand_eye_calibration {
+namespace eye_in_hand_calibration {
 
 SampleManager::SampleManager(double min_movement_threshold,
                              double min_rotation_threshold,
@@ -466,4 +466,167 @@ SampleManager::SampleStats SampleManager::getStatistics() const {
     return stats;
 }
 
-} // namespace hand_eye_calibration
+// ============================================
+// ADVANCED FILTERING (Python script logic)
+// ============================================
+
+std::vector<size_t> SampleManager::selectSamplesAdvanced(
+    double max_reproj_error,
+    double max_sensor_camera_dist,
+    double max_movement_ratio,
+    double max_rotation_diff) {
+
+    std::lock_guard<std::mutex> lock(samples_mutex_);
+
+    if (samples_.empty()) {
+        RCLCPP_ERROR(logger_, "No samples available for selection");
+        return {};
+    }
+
+    RCLCPP_INFO(logger_,
+               "\n========== ADVANCED SAMPLE SELECTION ==========");
+    RCLCPP_INFO(logger_, "Total samples collected: %zu", samples_.size());
+
+    // ========================================
+    // Filter 1: Reprojection error
+    // ========================================
+    std::vector<size_t> valid_indices;
+    for (size_t i = 0; i < samples_.size(); ++i) {
+        if (samples_[i].reprojection_error <= max_reproj_error) {
+            valid_indices.push_back(i);
+        }
+    }
+
+    RCLCPP_INFO(logger_,
+               "[Filter 1/3] Reprojection error < %.1fpx: %zu/%zu samples",
+               max_reproj_error, valid_indices.size(), samples_.size());
+
+    if (valid_indices.empty()) {
+        RCLCPP_ERROR(logger_, "No samples passed reprojection error filter!");
+        return {};
+    }
+
+    // ========================================
+    // Filter 2: Sensor-camera distance
+    // ========================================
+    std::vector<size_t> distance_filtered;
+    for (size_t idx : valid_indices) {
+        const auto& sample = samples_[idx];
+
+        // Calculate sensor-camera distance
+        Eigen::Vector3d sensor_pos = sample.sensor_pose.block<3, 1>(0, 3);
+        Eigen::Vector3d camera_pos = sample.camera_pose.block<3, 1>(0, 3);
+        double dist_m = (camera_pos - sensor_pos).norm();
+
+        if (dist_m <= max_sensor_camera_dist) {
+            distance_filtered.push_back(idx);
+        } else {
+            RCLCPP_DEBUG(logger_,
+                "  [Discarding sample %d] Sensor-camera dist: %.1fmm > %.1fmm",
+                sample.sample_id, dist_m * 1000.0, max_sensor_camera_dist * 1000.0);
+        }
+    }
+
+    RCLCPP_INFO(logger_,
+               "[Filter 2/3] Sensor-camera distance < %.1fmm: %zu/%zu samples",
+               max_sensor_camera_dist * 1000.0, distance_filtered.size(),
+               valid_indices.size());
+
+    if (distance_filtered.empty()) {
+        RCLCPP_ERROR(logger_, "No samples passed distance filter!");
+        return {};
+    }
+
+    // ========================================
+    // Filter 3: Movement coherence
+    // ========================================
+    std::vector<size_t> coherence_filtered;
+
+    if (distance_filtered.empty()) {
+        return {};
+    }
+
+    // Always keep first sample
+    coherence_filtered.push_back(distance_filtered[0]);
+
+    for (size_t i = 1; i < distance_filtered.size(); ++i) {
+        size_t idx_prev = distance_filtered[i - 1];
+        size_t idx_curr = distance_filtered[i];
+
+        const auto& sample_prev = samples_[idx_prev];
+        const auto& sample_curr = samples_[idx_curr];
+
+        // Calculate movements
+        Eigen::Vector3d sens_pos_prev = sample_prev.sensor_pose.block<3, 1>(0, 3);
+        Eigen::Vector3d sens_pos_curr = sample_curr.sensor_pose.block<3, 1>(0, 3);
+        double sens_move_mm = (sens_pos_curr - sens_pos_prev).norm() * 1000.0;
+
+        Eigen::Vector3d cam_pos_prev = sample_prev.camera_pose.block<3, 1>(0, 3);
+        Eigen::Vector3d cam_pos_curr = sample_curr.camera_pose.block<3, 1>(0, 3);
+        double cam_move_mm = (cam_pos_curr - cam_pos_prev).norm() * 1000.0;
+
+        // Calculate relative rotations
+        Eigen::Matrix3d sens_rot_prev = sample_prev.sensor_pose.block<3, 3>(0, 0);
+        Eigen::Matrix3d sens_rot_curr = sample_curr.sensor_pose.block<3, 3>(0, 0);
+        Eigen::Matrix3d dR_sens = sens_rot_curr * sens_rot_prev.transpose();
+
+        Eigen::Matrix3d cam_rot_prev = sample_prev.camera_pose.block<3, 3>(0, 0);
+        Eigen::Matrix3d cam_rot_curr = sample_curr.camera_pose.block<3, 3>(0, 0);
+        Eigen::Matrix3d dR_cam = cam_rot_curr * cam_rot_prev.transpose();
+
+        double sens_rot_deg = calculateRotationAngle(
+            sample_curr.sensor_pose, sample_prev.sensor_pose) * 180.0 / M_PI;
+        double cam_rot_deg = calculateRotationAngle(
+            sample_curr.camera_pose, sample_prev.camera_pose) * 180.0 / M_PI;
+
+        // Check translation coherence
+        bool trans_ok;
+        double ratio;
+
+        if (sens_move_mm < 1e-3 && cam_move_mm < 1e-3) {
+            trans_ok = true;
+            ratio = 1.0;
+        } else if (sens_move_mm < 1e-3 || cam_move_mm < 1e-3) {
+            trans_ok = false;
+            ratio = std::numeric_limits<double>::infinity();
+        } else {
+            ratio = std::max(sens_move_mm, cam_move_mm) /
+                   std::min(sens_move_mm, cam_move_mm);
+            trans_ok = (ratio <= max_movement_ratio);
+        }
+
+        // Check rotation coherence
+        double rot_diff_deg = std::abs(sens_rot_deg - cam_rot_deg);
+        bool rot_ok = (rot_diff_deg <= max_rotation_diff);
+
+        // Decision
+        if (trans_ok && rot_ok) {
+            coherence_filtered.push_back(idx_curr);
+        } else {
+            RCLCPP_DEBUG(logger_,
+                "  [Discarding sample %d] Incoherent with %d: "
+                "sens=%.1fmm/%.1f°, cam=%.1fmm/%.1f°, ratio=%.2f, Δrot=%.1f°",
+                sample_curr.sample_id, sample_prev.sample_id,
+                sens_move_mm, sens_rot_deg, cam_move_mm, cam_rot_deg,
+                ratio, rot_diff_deg);
+        }
+    }
+
+    RCLCPP_INFO(logger_,
+               "[Filter 3/3] Movement coherence (ratio<%.1f, Δrot<%.1f°): %zu/%zu samples",
+               max_movement_ratio, max_rotation_diff,
+               coherence_filtered.size(), distance_filtered.size());
+
+    if (coherence_filtered.empty()) {
+        RCLCPP_ERROR(logger_, "No samples passed coherence filter!");
+        return {};
+    }
+
+    RCLCPP_INFO(logger_,
+               "\n✓ Advanced filtering complete: %zu samples selected\n",
+               coherence_filtered.size());
+
+    return coherence_filtered;
+}
+
+} // namespace eye_in_hand_calibration

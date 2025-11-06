@@ -1,8 +1,8 @@
-#include "hand_eye_calibration/aurora_synchronizer.hpp"
+#include "eye_in_hand_calibration/aurora_synchronizer.hpp"
 #include <limits>
 #include <cmath>
 
-namespace hand_eye_calibration {
+namespace eye_in_hand_calibration {
 
 AuroraSynchronizer::AuroraSynchronizer(size_t max_buffer_size,
                                        int max_time_diff_ms,
@@ -263,4 +263,4 @@ void AuroraSynchronizer::resetStatistics() {
     RCLCPP_INFO(logger_, "Aurora synchronizer statistics reset");
 }
 
-} // namespace hand_eye_calibration
+} // namespace eye_in_hand_calibration
