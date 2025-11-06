@@ -1,34 +1,31 @@
-// Braccetto di collegamento a S tra due case (2D sul piano XY)
+// S-shaped connector arm between enclosures
 
-// === PARAMETRI MODIFICABILI ===
+// === PARAMETERS ===
 
-// Parametri pin
+// Pin specifications
 pin_diameter = 6;
 pin_spacing = 20;
-pin_offset = 5;          // Distanza dei pin dall'estremità del mini braccetto
-pin_clearance = 0.3;     // Tolleranza per inserimento facile
+pin_offset = 5;
+pin_clearance = 0.3;
 
-// Forma a S (piana)
-s_offset = 10;           // Spostamento avanti del primo e terzo tratto (mm)
-s_lateral = 100;         // Lunghezza del tratto orizzontale (mm)
-connector_width = 20;    // Larghezza del corpo (mm)
-connector_thickness = 10; // Spessore del corpo (Z)
+// S-curve geometry
+s_offset = 10;           // forward offset of first and third segments
+s_lateral = 100;         // horizontal segment length
+connector_width = 20;
+connector_thickness = 10;
 
-// Estremità per incastro
-step_width = 40;         // Larghezza delle estremità
-step_length = 30;        // Lunghezza delle estremità
-step_thickness = 5;      // Spessore delle estremità
-step_clearance = 0.3;    // Gioco per incastro
+// End pieces for interlocking
+step_width = 40;
+step_length = 30;
+step_thickness = 5;
+step_clearance = 0.3;
 
-// Profondità fori
-hole_depth = 16;         // Profondità dei fori per i pin
+hole_depth = 16;
 
-// Risoluzione
 $fn = 64;
 
-// === MODULI ===
+// === MODULES ===
 
-// Fori per estremità inferiore
 module pin_holes_bottom() {
     pin_position = step_length - (pin_diameter/2 + pin_offset);
     translate([step_width/2 - pin_spacing/2, pin_position, -0.1])
@@ -37,7 +34,6 @@ module pin_holes_bottom() {
         cylinder(h=hole_depth + 0.2, d=pin_diameter + pin_clearance);
 }
 
-// Fori per estremità superiore
 module pin_holes_top() {
     pin_position = pin_diameter/2 + pin_offset;
     translate([step_width/2 - pin_spacing/2, pin_position, -0.1])
@@ -46,36 +42,35 @@ module pin_holes_top() {
         cylinder(h=hole_depth + 0.2, d=pin_diameter + pin_clearance);
 }
 
-// Braccetto completo a S piana
 module connector_arm() {
     difference() {
         union() {
-            // === ESTREMITÀ INFERIORE ===
+            // Bottom end piece
             translate([(connector_width - step_width)/2, 0, 0])
                 cube([step_width - step_clearance, step_length, step_thickness]);
 
-            // === PRIMO TRATTO: 10mm avanti (con sovrapposizione) ===
+            // First segment: forward offset with overlap
             translate([0, step_length - 0.1, 0])
                 cube([connector_width, s_offset + 0.1, connector_thickness]);
 
-            // === SECONDO TRATTO: 100mm orizzontale (con sovrapposizione) ===
+            // Second segment: horizontal span with overlap
             translate([0, step_length + s_offset - 0.1, 0])
                 cube([s_lateral + 0.1, connector_width, connector_thickness]);
 
-            // === TERZO TRATTO: 10mm avanti (CORRETTO - inizia dove finisce il secondo) ===
+            // Third segment: forward offset
             translate([s_lateral-(step_width/2), step_length + s_offset + connector_width - 0.1, 0])
                 cube([connector_width + 0.1, s_offset + 0.1, connector_thickness]);
 
-            // === ESTREMITÀ SUPERIORE (con sovrapposizione) ===
+            // Top end piece with overlap
             translate([s_lateral + (connector_width - step_width)/2 - (step_width/2), step_length + 2*s_offset + connector_width - 0.1, 0])
                 cube([step_width - step_clearance, step_length + 0.1, step_thickness]);
         }
 
-        // Fori estremità inferiore
+        // Bottom pin holes
         translate([(connector_width - step_width)/2, 0, -0.1])
             pin_holes_bottom();
 
-        // Fori estremità superiore
+        // Top pin holes
         translate([s_lateral + (connector_width - step_width)/2 - (step_width/2), step_length + 2*s_offset + connector_width, -0.1])
             pin_holes_top();
     }
