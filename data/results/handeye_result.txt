@@ -7,57 +7,45 @@ Configuration:
   Chessboard file:         hardware/chessboards/measured_points/chess_11x9_3mm_inter.yaml
   Method:                  tsai
   Max reproj error:        0.8 px
-  Max sensor-camera dist:  20.0 mm
-  Max movement ratio:      2.30
-  Max rotation diff:       25.0 deg
-  Samples used:            21
-  Sample indices:          [0, 5, 8, 9, 11, 100, 101, 102, 103, 106, 107, 108, 109, 110, 111, 151, 155, 159, 160, 163, 164]
+  Sensor-camera distance:  8.0 - 15.0 mm
+  Max movement ratio:      1.20
+  Max rotation diff:       15.0 deg
+  Spatial diversity:       ENABLED
+    Min trans distance:    15.0 mm
+    Min rot distance:      10.0 deg
+    Target samples:        25
+  Samples used:            14
+  Sample indices:          [0, 8, 11, 33, 89, 101, 155, 159, 160, 163, 164, 179, 187, 199]
+  Avg camera-chessboard:   71.59 mm
 
 Transformation X (sensor -> camera):
-  Translation norm:  10.747 mm
-  Rotation angle:    97.4212 deg
+  Translation norm:  11.438 mm
+  Rotation angle:    98.1428 deg
 
 Matrix X:
-      0.024584     0.042016    -0.998814    -0.001638
-     -0.742815     0.669424     0.009877    -0.004034
-      0.669045     0.741692     0.047667    -0.009825
+      0.017278     0.030506    -0.999385    -0.005480
+     -0.746655     0.665171     0.007396    -0.005414
+      0.664988     0.746068     0.034270    -0.008455
       0.000000     0.000000     0.000000     1.000000
 
 Rotation (Quaternion [x, y, z, w]):
-  [0.277260, -0.631897, -0.297346, 0.659863]
+  [0.281885, -0.635142, -0.296573, 0.655118]
 
 ======================================================================
-Calibration Errors (AX ≈ XB - pairwise comparison):
+Calibration Errors:
 ======================================================================
-  Number of pairs:     20
-  Rotation RMS:        28.7628 deg
-  Rotation mean:       18.9166 deg
-  Rotation median:     10.6210 deg
-  Rotation max:        80.7531 deg
-  Translation RMS:     86.098 mm
-  Translation mean:    68.658 mm
-  Translation median:  54.381 mm
-  Translation max:     217.665 mm
-
-======================================================================
-Prediction Errors (Direct comparison in Aurora frame):
-======================================================================
-  Number of samples:   21
-  Rotation RMS:        6.8536 deg
-  Rotation mean:       6.4452 deg
-  Rotation std:        2.3878 deg
-  Rotation median:     5.5638 deg
-  Rotation IQR:        1.3803 deg
-  Rotation q25:        5.3633 deg
-  Rotation q75:        6.7436 deg
-  Rotation max:        12.6896 deg
-  Translation RMS:     7.285 mm
-  Translation mean:    7.035 mm
-  Translation std:     1.938 mm
-  Translation median:  6.694 mm
-  Translation IQR:     1.924 mm
-  Translation q25:     5.881 mm
-  Translation q75:     7.805 mm
-  Translation max:     11.391 mm
+  Number of samples:   14
+  Rotation min:        1.5619 deg
+  Rotation median:     4.8142 deg
+  Rotation max:        12.7896 deg
+  Rotation mean:       4.8962 deg
+  Rotation std:        2.6060 deg
+  Rotation RMS:        5.5027 deg
+  Translation min:     0.976 mm
+  Translation median:  3.338 mm
+  Translation max:     9.804 mm
+  Translation mean:    3.723 mm
+  Translation std:     2.243 mm
+  Translation RMS:     4.305 mm
 
 ======================================================================

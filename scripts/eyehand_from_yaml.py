@@ -34,11 +34,12 @@ CHESSBOARD_DIR = REPO_ROOT / "hardware" / "chessboards" / "measured_points"
 CONFIG = {
     # Quality filters
     "MAX_REPROJ_ERROR_PX": 0.8,           # Maximum reprojection error (pixels)
-    "MAX_SENSOR_CAMERA_DIST_MM": 20.0,    # Maximum sensor-camera distance (mm)
+    "MIN_SENSOR_CAMERA_DIST_MM": 8.0,     # Minimum sensor-camera distance (mm)
+    "MAX_SENSOR_CAMERA_DIST_MM": 15.0,    # Maximum sensor-camera distance (mm)
 
     # Relative movement coherence
-    "MAX_MOVEMENT_RATIO": 2.3,            # Max ratio between sensor/camera movement
-    "MAX_ROTATION_DIFF_DEG": 25.0,        # Max difference in rotation angles (degrees)
+    "MAX_MOVEMENT_RATIO": 1.2,            # Max ratio between sensor/camera movement
+    "MAX_ROTATION_DIFF_DEG": 15.0,        # Max difference in rotation angles (degrees)
 
     # Spatial diversity filter
     "USE_SPATIAL_DIVERSITY": True,        # Enable spatial diversity filter
@@ -168,8 +169,8 @@ def filter_by_reprojection_error(samples: List[Dict], max_error: float) -> List[
     return valid
 
 def filter_by_sensor_camera_distance(samples: List[Dict], indices: List[int],
-                                     max_dist_mm: float) -> List[int]:
-    """Filters by sensor-camera distance."""
+                                     min_dist_mm: float, max_dist_mm: float) -> List[int]:
+    """Filters by sensor-camera distance (both min and max)."""
     valid = []
 
     for idx in indices:
@@ -182,14 +183,18 @@ def filter_by_sensor_camera_distance(samples: List[Dict], indices: List[int],
         # Calculate distance
         dist_mm = np.linalg.norm(camera_pos - sensor_pos) * 1000.0
 
-        if dist_mm <= max_dist_mm:
+        if min_dist_mm <= dist_mm <= max_dist_mm:
             valid.append(idx)
         else:
             sample_id = sample.get('sample_id', idx)
-            print(f"  [Discarding sample {sample_id}] "
-                  f"Sensor-camera dist: {dist_mm:.1f}mm > {max_dist_mm:.1f}mm")
+            if dist_mm < min_dist_mm:
+                print(f"  [Discarding sample {sample_id}] "
+                      f"Sensor-camera dist: {dist_mm:.1f}mm < {min_dist_mm:.1f}mm (too close)")
+            else:
+                print(f"  [Discarding sample {sample_id}] "
+                      f"Sensor-camera dist: {dist_mm:.1f}mm > {max_dist_mm:.1f}mm (too far)")
 
-    print(f"[Filter 2/3] Sensor-camera distance < {max_dist_mm:.1f}mm: "
+    print(f"[Filter 2/3] Sensor-camera distance {min_dist_mm:.1f}mm - {max_dist_mm:.1f}mm: "
           f"{len(valid)}/{len(indices)} samples")
     return valid
 
@@ -197,20 +202,30 @@ def filter_by_movement_coherence(samples: List[Dict], indices: List[int],
                                  max_ratio: float, max_rot_diff_deg: float) -> List[int]:
     """
     Filters by coherence of relative movements between successive pairs.
+
+    Strategy:
+    1. Start from sample with lowest reprojection error
+    2. Expand bidirectionally (forward and backward)
+    3. Always compare with the LAST VALID sample (not just previous in list)
     """
     if len(indices) < 2:
         return indices
 
-    valid = [indices[0]]  # Always keep the first one
+    # Find sample with lowest reprojection error
+    best_idx = min(indices, key=lambda idx: samples[idx].get('reprojection_error', float('inf')))
+    best_pos = indices.index(best_idx)
 
-    for i in range(1, len(indices)):
-        idx_prev = indices[i-1]
-        idx_curr = indices[i]
+    print(f"  Starting from sample {best_idx} (lowest reproj error: "
+          f"{samples[best_idx].get('reprojection_error', 0):.3f}px)")
 
+    valid = [best_idx]  # Start with best sample
+
+    def check_coherence(idx_prev: int, idx_curr: int) -> Tuple[bool, str]:
+        """Returns (is_valid, reason_if_invalid)"""
         sample_prev = samples[idx_prev]
         sample_curr = samples[idx_curr]
 
-        # Create matrices from new format
+        # Create matrices
         T_sens_prev = matrix_from_pos_quat(
             sample_prev['sensor']['position'],
             sample_prev['sensor']['orientation']
@@ -246,6 +261,7 @@ def filter_by_movement_coherence(samples: List[Dict], indices: List[int],
         elif sens_move_mm < 1e-3 or cam_move_mm < 1e-3:
             trans_ok = False
             ratio = float('inf')
+            return False, f"sens={sens_move_mm:.1f}mm/{sens_rot_deg:.1f}°, cam={cam_move_mm:.1f}mm/{cam_rot_deg:.1f}°, ratio=inf"
         else:
             ratio = max(sens_move_mm, cam_move_mm) / min(sens_move_mm, cam_move_mm)
             trans_ok = (ratio <= max_ratio)
@@ -254,16 +270,38 @@ def filter_by_movement_coherence(samples: List[Dict], indices: List[int],
         rot_diff_deg = abs(sens_rot_deg - cam_rot_deg)
         rot_ok = (rot_diff_deg <= max_rot_diff_deg)
 
-        # Decision
         if trans_ok and rot_ok:
-            valid.append(idx_curr)
+            return True, ""
         else:
-            sid_prev = sample_prev.get('sample_id', idx_prev)
-            sid_curr = sample_curr.get('sample_id', idx_curr)
-            print(f"  [Discarding sample {sid_curr}] Incoherent with {sid_prev}: "
-                  f"sens={sens_move_mm:.1f}mm/{sens_rot_deg:.1f}°, "
-                  f"cam={cam_move_mm:.1f}mm/{cam_rot_deg:.1f}°, "
-                  f"ratio={ratio:.2f}, Δrot={rot_diff_deg:.1f}°")
+            return False, f"sens={sens_move_mm:.1f}mm/{sens_rot_deg:.1f}°, cam={cam_move_mm:.1f}mm/{cam_rot_deg:.1f}°, ratio={ratio:.2f}, Δrot={rot_diff_deg:.1f}°"
+
+    # Expand forward (increasing indices)
+    last_valid_forward = best_idx
+    for i in range(best_pos + 1, len(indices)):
+        idx_curr = indices[i]
+        is_valid, reason = check_coherence(last_valid_forward, idx_curr)
+
+        if is_valid:
+            valid.append(idx_curr)
+            last_valid_forward = idx_curr
+        else:
+            sid_prev = samples[last_valid_forward].get('sample_id', last_valid_forward)
+            sid_curr = samples[idx_curr].get('sample_id', idx_curr)
+            print(f"  [Discarding sample {sid_curr}] Incoherent with {sid_prev}: {reason}")
+
+    # Expand backward (decreasing indices)
+    last_valid_backward = best_idx
+    for i in range(best_pos - 1, -1, -1):
+        idx_curr = indices[i]
+        is_valid, reason = check_coherence(idx_curr, last_valid_backward)
+
+        if is_valid:
+            valid.insert(0, idx_curr)  # Insert at beginning to maintain order
+            last_valid_backward = idx_curr
+        else:
+            sid_prev = samples[last_valid_backward].get('sample_id', last_valid_backward)
+            sid_curr = samples[idx_curr].get('sample_id', idx_curr)
+            print(f"  [Discarding sample {sid_curr}] Incoherent with {sid_prev}: {reason}")
 
     print(f"[Filter 3/3] Movement coherence (ratio<{max_ratio:.1f}, Δrot<{max_rot_diff_deg:.1f}°): "
           f"{len(valid)}/{len(indices)} samples")
@@ -662,6 +700,25 @@ def analyze_movements(samples: List[Dict], indices: List[int]) -> None:
     print("\nMovement ratio (sensor/camera):")
     print(f"  Translation: mean={np.mean(ratios_trans):.2f}, median={np.median(ratios_trans):.2f}")
     print(f"  Rotation:    mean={np.mean(ratios_rot):.2f}, median={np.median(ratios_rot):.2f}")
+
+    # Calculate camera-sensor distances for all samples
+    print("\n" + "-" * 80)
+    print("\nCAMERA (MEASURED) - SENSOR distance statistics:")
+    distances = []
+
+    for idx in indices:
+        sample = samples[idx]
+        sensor_pos = np.array(sample['sensor']['position'])
+        camera_pos = np.array(sample['camera']['position'])
+        dist_mm = np.linalg.norm(camera_pos - sensor_pos) * 1000.0
+        distances.append(dist_mm)
+
+    distances = np.array(distances)
+    print(f"  Mean:   {np.mean(distances):6.2f} mm")
+    print(f"  Median: {np.median(distances):6.2f} mm")
+    print(f"  Min:    {np.min(distances):6.2f} mm")
+    print(f"  Max:    {np.max(distances):6.2f} mm")
+    print(f"  Std:    {np.std(distances, ddof=1):6.2f} mm")
     print()
 
 # ----------------------------
@@ -797,7 +854,7 @@ def save_results(filename: Path, X: np.ndarray, stats_pred: Dict,
         f.write(f"  Chessboard file:         {chessboard_file}\n")
         f.write(f"  Method:                  {config['METHOD']}\n")
         f.write(f"  Max reproj error:        {config['MAX_REPROJ_ERROR_PX']:.1f} px\n")
-        f.write(f"  Max sensor-camera dist:  {config['MAX_SENSOR_CAMERA_DIST_MM']:.1f} mm\n")
+        f.write(f"  Sensor-camera distance:  {config['MIN_SENSOR_CAMERA_DIST_MM']:.1f} - {config['MAX_SENSOR_CAMERA_DIST_MM']:.1f} mm\n")
         f.write(f"  Max movement ratio:      {config['MAX_MOVEMENT_RATIO']:.2f}\n")
         f.write(f"  Max rotation diff:       {config['MAX_ROTATION_DIFF_DEG']:.1f} deg\n")
         if config.get('USE_SPATIAL_DIVERSITY', False):
@@ -1047,6 +1104,7 @@ def main():
 
     # Filter 2: Sensor-camera distance
     indices = filter_by_sensor_camera_distance(samples, indices,
+                                               CONFIG["MIN_SENSOR_CAMERA_DIST_MM"],
                                                CONFIG["MAX_SENSOR_CAMERA_DIST_MM"])
 
     if len(indices) < CONFIG["MIN_SAMPLES"]:
