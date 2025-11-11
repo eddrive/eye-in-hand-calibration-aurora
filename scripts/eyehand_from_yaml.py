@@ -40,6 +40,12 @@ CONFIG = {
     "MAX_MOVEMENT_RATIO": 2.3,            # Max ratio between sensor/camera movement
     "MAX_ROTATION_DIFF_DEG": 25.0,        # Max difference in rotation angles (degrees)
 
+    # Spatial diversity filter
+    "USE_SPATIAL_DIVERSITY": True,        # Enable spatial diversity filter
+    "MIN_TRANS_DIST_MM": 15.0,            # Minimum translation distance between consecutive samples (mm)
+    "MIN_ROT_DIST_DEG": 10.0,             # Minimum rotation distance between consecutive samples (deg)
+    "TARGET_DIVERSE_SAMPLES": 25,         # Target number of spatially diverse samples
+
     # Hand-eye method
     "METHOD": "tsai",  # Options: "tsai", "park", "horaud", "andreff", "daniilidis"
 
@@ -47,7 +53,7 @@ CONFIG = {
     "MIN_SAMPLES": 10,
 
     # Iterative refinement
-    "USE_ITERATIVE_REFINEMENT": True,     # Enable iterative pair selection based on error
+    "USE_ITERATIVE_REFINEMENT": False,    # Enable iterative pair selection based on error (DISABLED for now)
     "TARGET_PAIRS": 20,                   # Target number of pairs after refinement
 }
 # ============================================
@@ -263,6 +269,100 @@ def filter_by_movement_coherence(samples: List[Dict], indices: List[int],
           f"{len(valid)}/{len(indices)} samples")
     return valid
 
+def filter_by_spatial_diversity(samples: List[Dict], indices: List[int],
+                                 min_trans_dist_mm: float = 15.0,
+                                 min_rot_dist_deg: float = 10.0,
+                                 target_samples: int = 25) -> List[int]:
+    """
+    Selects spatially diverse samples using greedy farthest-point algorithm.
+
+    This ensures consecutive pairs have large relative movements, reducing
+    calibration errors caused by small movements amplifying noise.
+
+    Args:
+        samples: All samples
+        indices: Current sample indices
+        min_trans_dist_mm: Minimum translation distance between consecutive samples (mm)
+        min_rot_dist_deg: Minimum rotation distance between consecutive samples (deg)
+        target_samples: Target number of samples to select
+
+    Returns:
+        List of indices with maximum spatial diversity
+    """
+    if len(indices) <= target_samples:
+        print(f"[Filter 4/4] Spatial diversity: {len(indices)} samples (no filtering needed)")
+        return indices
+
+    # Extract all poses
+    poses = []
+    for idx in indices:
+        sample = samples[idx]
+        T_sensor = matrix_from_pos_quat(
+            sample['sensor']['position'],
+            sample['sensor']['orientation']
+        )
+        poses.append((idx, T_sensor))
+
+    # Greedy farthest-point selection
+    selected = []
+    remaining = list(range(len(poses)))
+
+    # Start with first sample (arbitrary)
+    selected.append(0)
+    remaining.remove(0)
+
+    print(f"\n[Filter 4/4] Selecting {target_samples} spatially diverse samples:")
+    print(f"  Strategy: Maximize distance between consecutive samples")
+    print(f"  Min translation: {min_trans_dist_mm:.1f}mm, Min rotation: {min_rot_dist_deg:.1f}°\n")
+
+    while len(selected) < target_samples and remaining:
+        last_idx = selected[-1]
+        last_pose = poses[last_idx][1]
+
+        # Find farthest sample from last selected
+        best_dist = -1
+        best_candidate = None
+
+        for candidate_idx in remaining:
+            candidate_pose = poses[candidate_idx][1]
+
+            # Translation distance
+            trans_dist_mm = np.linalg.norm(
+                candidate_pose[:3, 3] - last_pose[:3, 3]
+            ) * 1000.0
+
+            # Rotation distance
+            dR = candidate_pose[:3, :3] @ last_pose[:3, :3].T
+            rot_dist_deg = np.degrees(rot_angle(dR))
+
+            # Combined distance (weight translation and rotation equally)
+            combined_dist = trans_dist_mm / min_trans_dist_mm + rot_dist_deg / min_rot_dist_deg
+
+            if combined_dist > best_dist:
+                best_dist = combined_dist
+                best_candidate = candidate_idx
+                best_trans = trans_dist_mm
+                best_rot = rot_dist_deg
+
+        if best_candidate is not None:
+            selected.append(best_candidate)
+            remaining.remove(best_candidate)
+
+            sample_id_prev = poses[last_idx][0]
+            sample_id_curr = poses[best_candidate][0]
+
+            print(f"  [{len(selected):2d}] Sample {sample_id_curr:3d} "
+                  f"(Δ from {sample_id_prev:3d}: "
+                  f"trans={best_trans:5.1f}mm, rot={best_rot:5.1f}°)")
+
+    # Convert local indices back to original indices
+    result = [poses[i][0] for i in selected]
+
+    print(f"\n✓ Selected {len(result)} spatially diverse samples")
+    print(f"  Original indices: {result}\n")
+
+    return result
+
 # ----------------------------
 # Iterative pair selection based on calibration error
 # ----------------------------
@@ -420,13 +520,13 @@ def run_handeye(samples: List[Dict], indices: List[int], method_name: str) -> np
       - sensor: {position, orientation} = T_aurora_to_sensor
       - camera: {position, orientation} = T_aurora_to_camera
 
-    OpenCV expects:
-      - R_gripper2base, t_gripper2base = T_base_to_gripper
-      - R_target2cam, t_target2cam = T_camera_to_target
+    Since both sensor and camera are in the same Aurora frame,
+    we can directly use their poses for calibration:
+      - R_gripper2base = R_aurora_to_sensor (direct)
+      - R_target2cam = R_aurora_to_camera (direct, NO inversion!)
 
-    Therefore:
-      - gripper2base = sensor (direct)
-      - target2cam = camera.inverse() (INVERSION!)
+    OpenCV will solve: T_aurora_to_camera = T_aurora_to_sensor @ X
+    Where X = T_sensor_to_camera (the transformation we want)
     """
     method_map = {
         'tsai': cv2.CALIB_HAND_EYE_TSAI,
@@ -477,14 +577,10 @@ def run_handeye(samples: List[Dict], indices: List[int], method_name: str) -> np
     return X
 
 # ----------------------------
-# Error evaluation
+# Movement statistics
 # ----------------------------
-def evaluate_calibration(samples: List[Dict], indices: List[int], X: np.ndarray) -> Dict:
-    """Calculates AX≈XB errors only on CONSECUTIVE pairs."""
-    rot_errs = []
-    trans_errs = []
-
-    # For movement statistics
+def analyze_movements(samples: List[Dict], indices: List[int]) -> None:
+    """Analyzes and prints movement statistics between consecutive pairs."""
     movements_A = []
     movements_B = []
 
@@ -530,25 +626,10 @@ def evaluate_calibration(samples: List[Dict], indices: List[int], X: np.ndarray)
         movements_A.append((trans_A, rot_A))
         movements_B.append((trans_B, rot_B))
 
-        # Residual: AX vs XB
-        AX = A @ X
-        XB = X @ B
-        Delta = AX @ T_inv(XB)
-
-        # Errors
-        rot_err_rad = rot_angle(Delta[:3, :3])
-        trans_err_m = np.linalg.norm(Delta[:3, 3])
-        rot_err_deg = np.degrees(rot_err_rad)
-        trans_err_mm = trans_err_m * 1000.0
-
-        rot_errs.append(rot_err_rad)
-        trans_errs.append(trans_err_m)
-
         # Print for each pair
         print(f"  Pair {k:2d} (sample {idx_i:3d}→{idx_j:3d}): "
               f"sensor={trans_A:6.1f}mm/{rot_A:5.1f}°  |  "
-              f"camera={trans_B:6.1f}mm/{rot_B:5.1f}°  |  "
-              f"err={trans_err_mm:6.1f}mm/{rot_err_deg:5.1f}°")
+              f"camera={trans_B:6.1f}mm/{rot_B:5.1f}°")
 
     movements_A = np.array(movements_A)
     movements_B = np.array(movements_B)
@@ -582,20 +663,45 @@ def evaluate_calibration(samples: List[Dict], indices: List[int], X: np.ndarray)
     print(f"  Translation: mean={np.mean(ratios_trans):.2f}, median={np.median(ratios_trans):.2f}")
     print(f"  Rotation:    mean={np.mean(ratios_rot):.2f}, median={np.median(ratios_rot):.2f}")
     print()
-    
-    rot_errs = np.array(rot_errs)
-    trans_errs = np.array(trans_errs)
-    
+
+# ----------------------------
+# Error evaluation
+# ----------------------------
+def compute_camera_chessboard_distance(samples: List[Dict], indices: List[int],
+                                       chessboard_center: np.ndarray) -> Dict:
+    """
+    Calculates the average distance between camera and chessboard center.
+
+    Args:
+        samples: All samples
+        indices: Indices of samples to use
+        chessboard_center: 3D position of chessboard center in Aurora frame [x, y, z] in meters
+
+    Returns:
+        Dict with 'mean', 'median', 'min', 'max' distances in mm
+    """
+    distances = []
+
+    for idx in indices:
+        sample = samples[idx]
+        T_aurora_to_camera = matrix_from_pos_quat(
+            sample['camera']['position'],
+            sample['camera']['orientation']
+        )
+        # Camera position in Aurora frame
+        camera_pos = T_aurora_to_camera[:3, 3]
+        # Distance from camera to chessboard center
+        dist_m = np.linalg.norm(camera_pos - chessboard_center)
+        distances.append(dist_m * 1000.0)  # Convert to mm
+
+    distances = np.array(distances)
+
     return {
-        'rot_mean_deg': float(np.degrees(np.mean(rot_errs))),
-        'rot_median_deg': float(np.degrees(np.median(rot_errs))),
-        'rot_max_deg': float(np.degrees(np.max(rot_errs))),
-        'rot_rms_deg': float(np.degrees(np.sqrt(np.mean(rot_errs**2)))),
-        'trans_mean_mm': float(np.mean(trans_errs) * 1000.0),
-        'trans_median_mm': float(np.median(trans_errs) * 1000.0),
-        'trans_max_mm': float(np.max(trans_errs) * 1000.0),
-        'trans_rms_mm': float(np.sqrt(np.mean(trans_errs**2)) * 1000.0),
-        'num_pairs': len(rot_errs)
+        'mean': float(np.mean(distances)),
+        'median': float(np.median(distances)),
+        'min': float(np.min(distances)),
+        'max': float(np.max(distances)),
+        'std': float(np.std(distances, ddof=1)) if len(distances) > 1 else 0.0,
     }
 
 def compute_errors_alternative(samples: List[Dict], indices: List[int], X: np.ndarray) -> Dict:
@@ -677,14 +783,15 @@ def compute_errors_alternative(samples: List[Dict], indices: List[int], X: np.nd
 # ----------------------------
 # Save results
 # ----------------------------
-def save_results(filename: Path, X: np.ndarray, stats_axb: Dict, stats_pred: Dict,
-                indices: List[int], config: Dict, input_file: str, chessboard_file: str):
+def save_results(filename: Path, X: np.ndarray, stats_pred: Dict,
+                indices: List[int], config: Dict, input_file: str, chessboard_file: str,
+                avg_camera_chessboard_dist_mm: float = None):
     """Saves results to file."""
     with open(filename, 'w') as f:
         f.write("="*70 + "\n")
         f.write("HAND-EYE CALIBRATION RESULTS\n")
         f.write("="*70 + "\n\n")
-        
+
         f.write("Configuration:\n")
         f.write(f"  Input file:              {input_file}\n")
         f.write(f"  Chessboard file:         {chessboard_file}\n")
@@ -693,48 +800,40 @@ def save_results(filename: Path, X: np.ndarray, stats_axb: Dict, stats_pred: Dic
         f.write(f"  Max sensor-camera dist:  {config['MAX_SENSOR_CAMERA_DIST_MM']:.1f} mm\n")
         f.write(f"  Max movement ratio:      {config['MAX_MOVEMENT_RATIO']:.2f}\n")
         f.write(f"  Max rotation diff:       {config['MAX_ROTATION_DIFF_DEG']:.1f} deg\n")
+        if config.get('USE_SPATIAL_DIVERSITY', False):
+            f.write(f"  Spatial diversity:       ENABLED\n")
+            f.write(f"    Min trans distance:    {config['MIN_TRANS_DIST_MM']:.1f} mm\n")
+            f.write(f"    Min rot distance:      {config['MIN_ROT_DIST_DEG']:.1f} deg\n")
+            f.write(f"    Target samples:        {config['TARGET_DIVERSE_SAMPLES']}\n")
         f.write(f"  Samples used:            {len(indices)}\n")
         f.write(f"  Sample indices:          {indices}\n")
+        if avg_camera_chessboard_dist_mm is not None:
+            f.write(f"  Avg camera-chessboard:   {avg_camera_chessboard_dist_mm:.2f} mm\n")
         f.write("\n")
-        
+
         # Metriche trasformazione X
         trans_norm_mm = np.linalg.norm(X[:3, 3]) * 1000.0
         rot_deg = np.degrees(rot_angle(X[:3, :3]))
-        
+
         f.write("Transformation X (sensor -> camera):\n")
         f.write(f"  Translation norm:  {trans_norm_mm:.3f} mm\n")
         f.write(f"  Rotation angle:    {rot_deg:.4f} deg\n")
         f.write("\n")
-        
+
         f.write("Matrix X:\n")
         for row in X:
             f.write(f"  {' '.join(f'{x:12.6f}' for x in row)}\n")
         f.write("\n")
-        
+
         # Quaternion
         quat = R.from_matrix(X[:3, :3]).as_quat()  # [x, y, z, w]
         f.write("Rotation (Quaternion [x, y, z, w]):\n")
         f.write(f"  [{quat[0]:.6f}, {quat[1]:.6f}, {quat[2]:.6f}, {quat[3]:.6f}]\n")
         f.write("\n")
-        
-        # Errori calibrazione AX≈XB
-        f.write("="*70 + "\n")
-        f.write("Calibration Errors (AX ≈ XB - pairwise comparison):\n")
-        f.write("="*70 + "\n")
-        f.write(f"  Number of pairs:     {stats_axb['num_pairs']}\n")
-        f.write(f"  Rotation RMS:        {stats_axb['rot_rms_deg']:.4f} deg\n")
-        f.write(f"  Rotation mean:       {stats_axb['rot_mean_deg']:.4f} deg\n")
-        f.write(f"  Rotation median:     {stats_axb['rot_median_deg']:.4f} deg\n")
-        f.write(f"  Rotation max:        {stats_axb['rot_max_deg']:.4f} deg\n")
-        f.write(f"  Translation RMS:     {stats_axb['trans_rms_mm']:.3f} mm\n")
-        f.write(f"  Translation mean:    {stats_axb['trans_mean_mm']:.3f} mm\n")
-        f.write(f"  Translation median:  {stats_axb['trans_median_mm']:.3f} mm\n")
-        f.write(f"  Translation max:     {stats_axb['trans_max_mm']:.3f} mm\n")
-        f.write("\n")
-        
+
         # Errori predizione diretta
         f.write("="*70 + "\n")
-        f.write("Prediction Errors (Direct comparison in Aurora frame):\n")
+        f.write("Calibration Errors:\n")
         f.write("="*70 + "\n")
         f.write(f"  Number of samples:   {stats_pred['rotation_deg']['count']}\n")
         f.write(f"  Rotation min:        {stats_pred['rotation_deg']['min']:.4f} deg\n")
@@ -963,6 +1062,19 @@ def main():
         print(f"\n❌ ERROR: Too few samples after filter 3 ({len(indices)} < {CONFIG['MIN_SAMPLES']})")
         sys.exit(1)
 
+    # Filter 4: Spatial diversity (NEW!)
+    if CONFIG["USE_SPATIAL_DIVERSITY"]:
+        indices = filter_by_spatial_diversity(
+            samples, indices,
+            min_trans_dist_mm=CONFIG["MIN_TRANS_DIST_MM"],
+            min_rot_dist_deg=CONFIG["MIN_ROT_DIST_DEG"],
+            target_samples=CONFIG["TARGET_DIVERSE_SAMPLES"]
+        )
+
+        if len(indices) < CONFIG["MIN_SAMPLES"]:
+            print(f"\n❌ ERROR: Too few samples after filter 4 ({len(indices)} < {CONFIG['MIN_SAMPLES']})")
+            sys.exit(1)
+
     print(f"\n✓ Filters completed: {len(indices)} samples selected\n")
 
     # Iterative refinement (optional)
@@ -991,14 +1103,7 @@ def main():
 
     print("✓ Calibration completed\n")
 
-    # Evaluation with AX≈XB method (original)
-    print("="*70)
-    print("ERROR EVALUATION (AX≈XB Method)")
-    print("="*70 + "\n")
-
-    stats_axb = evaluate_calibration(samples, indices, X)
-
-    # Print results
+    # Print transformation results
     trans_norm_mm = np.linalg.norm(X[:3, 3]) * 1000.0
     rot_deg = np.degrees(rot_angle(X[:3, :3]))
 
@@ -1011,20 +1116,15 @@ def main():
     print(X)
     print()
 
-    print("Calibration errors (AX ≈ XB - pairwise):")
-    print(f"  Pairs evaluated:     {stats_axb['num_pairs']}")
-    print(f"  Rotation RMS:        {stats_axb['rot_rms_deg']:.4f} deg")
-    print(f"  Rotation mean:       {stats_axb['rot_mean_deg']:.4f} deg")
-    print(f"  Rotation median:     {stats_axb['rot_median_deg']:.4f} deg")
-    print(f"  Rotation max:        {stats_axb['rot_max_deg']:.4f} deg")
-    print(f"  Translation RMS:     {stats_axb['trans_rms_mm']:.3f} mm")
-    print(f"  Translation mean:    {stats_axb['trans_mean_mm']:.3f} mm")
-    print(f"  Translation median:  {stats_axb['trans_median_mm']:.3f} mm")
-    print(f"  Translation max:     {stats_axb['trans_max_mm']:.3f} mm\n")
+    # Movement statistics
+    print("="*70)
+    print("MOVEMENT STATISTICS")
+    print("="*70)
+    analyze_movements(samples, indices)
 
     # Evaluation with direct prediction method
     print("="*70)
-    print("ERROR EVALUATION (Direct Prediction)")
+    print("ERROR EVALUATION")
     print("="*70 + "\n")
 
     stats_pred = compute_errors_alternative(samples, indices, X)
@@ -1044,22 +1144,6 @@ def main():
     print(f"  Translation std:     {stats_pred['translation_mm']['std']:.3f} mm")
     print(f"  Translation RMS:     {stats_pred['translation_mm']['rms']:.3f} mm\n")
 
-    # Generate output file name with timestamp
-    from datetime import datetime
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_file = DATA_RESULTS_DIR / f"handeye_result_{timestamp}.txt"
-
-    # Save results
-    save_results(
-        output_file, X, stats_axb, stats_pred, indices, CONFIG,
-        str(samples_file.relative_to(REPO_ROOT)),
-        str(chessboard_file.relative_to(REPO_ROOT))
-    )
-
-    print("="*70)
-    print("✓ CALIBRATION COMPLETED SUCCESSFULLY")
-    print("="*70 + "\n")
-
     # Load selected chessboard
     chessboard_corners = None
     try:
@@ -1067,9 +1151,48 @@ def main():
             chessboard_data = yaml.safe_load(f)
             chessboard_corners = chessboard_data.get('chessboard_corners')
             if chessboard_corners:
-                print(f"✓ Chessboard loaded: {chessboard_file.name}\n")
+                print(f"✓ Chessboard loaded: {chessboard_file.name}")
     except Exception as e:
-        print(f"⚠ Unable to load chessboard: {e}\n")
+        print(f"⚠ Unable to load chessboard: {e}")
+
+    # Calculate chessboard center from loaded corners
+    chessboard_center = np.array([0.0, 0.0, 0.0])  # Default to origin if no chessboard
+    if chessboard_corners is not None and 'points' in chessboard_corners:
+        corners = np.array([[c['x'], c['y'], c['z']] for c in chessboard_corners['points']])
+        chessboard_center = np.mean(corners, axis=0)
+        print(f"Chessboard center in Aurora frame: [{chessboard_center[0]:.6f}, "
+              f"{chessboard_center[1]:.6f}, {chessboard_center[2]:.6f}] m\n")
+
+    # Calculate camera-chessboard distance statistics
+    print("="*70)
+    print("CAMERA-CHESSBOARD DISTANCE")
+    print("="*70 + "\n")
+
+    camera_chessboard_stats = compute_camera_chessboard_distance(samples, indices, chessboard_center)
+
+    print(f"Distance from camera to chessboard center:")
+    print(f"  Mean:    {camera_chessboard_stats['mean']:.2f} mm")
+    print(f"  Median:  {camera_chessboard_stats['median']:.2f} mm")
+    print(f"  Min:     {camera_chessboard_stats['min']:.2f} mm")
+    print(f"  Max:     {camera_chessboard_stats['max']:.2f} mm")
+    print(f"  Std:     {camera_chessboard_stats['std']:.2f} mm\n")
+
+    # Generate output file name with timestamp
+    from datetime import datetime
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_file = DATA_RESULTS_DIR / f"handeye_result_{timestamp}.txt"
+
+    # Save results
+    save_results(
+        output_file, X, stats_pred, indices, CONFIG,
+        str(samples_file.relative_to(REPO_ROOT)),
+        str(chessboard_file.relative_to(REPO_ROOT)),
+        avg_camera_chessboard_dist_mm=camera_chessboard_stats['mean']
+    )
+
+    print("="*70)
+    print("✓ CALIBRATION COMPLETED SUCCESSFULLY")
+    print("="*70 + "\n")
 
     # Start visualization
     CalibrationViewer(samples, indices, X, chessboard_corners=chessboard_corners)
