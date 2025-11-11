@@ -16,6 +16,7 @@ import sys
 from math import acos
 from typing import List, Dict, Tuple
 from scipy.spatial.transform import Rotation as R
+from scipy.optimize import least_squares
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from pathlib import Path
@@ -43,7 +44,7 @@ CONFIG = {
 
     # Spatial diversity filter
     "USE_SPATIAL_DIVERSITY": True,        # Enable spatial diversity filter
-    "MIN_TRANS_DIST_MM": 15.0,            # Minimum translation distance between consecutive samples (mm)
+    "MIN_TRANS_DIST_MM": 14.0,            # Minimum translation distance between consecutive samples (mm)
     "MIN_ROT_DIST_DEG": 10.0,             # Minimum rotation distance between consecutive samples (deg)
     "TARGET_DIVERSE_SAMPLES": 25,         # Target number of spatially diverse samples
 
@@ -56,6 +57,11 @@ CONFIG = {
     # Iterative refinement
     "USE_ITERATIVE_REFINEMENT": False,    # Enable iterative pair selection based on error (DISABLED for now)
     "TARGET_PAIRS": 20,                   # Target number of pairs after refinement
+
+    # Nonlinear refinement (Bundle Adjustment)
+    "USE_NONLINEAR_REFINEMENT": True,     # Enable nonlinear refinement with Levenberg-Marquardt
+    "REFINEMENT_MAX_ITERATIONS": 100,     # Maximum iterations for optimizer
+    "ROTATION_WEIGHT": 10.0,              # Weight for rotation errors in optimization (higher = prioritize rotation)
 }
 # ============================================
 
@@ -614,6 +620,128 @@ def run_handeye(samples: List[Dict], indices: List[int], method_name: str) -> np
 
     return X
 
+def refine_handeye_nonlinear(samples: List[Dict], indices: List[int],
+                              X_init: np.ndarray, max_iterations: int = 100,
+                              rotation_weight: float = 10.0) -> np.ndarray:
+    """
+    Refines hand-eye calibration using nonlinear optimization (Bundle Adjustment).
+
+    Uses Levenberg-Marquardt to minimize the reprojection error of camera poses.
+
+    Parameters:
+        samples: All samples
+        indices: Indices of samples to use
+        X_init: Initial transformation (4x4 matrix) from closed-form solution
+        max_iterations: Maximum number of optimizer iterations
+        rotation_weight: Weight for rotation errors (higher = prioritize rotation accuracy)
+
+    Returns:
+        X_refined: Refined transformation (4x4 matrix)
+
+    Reference:
+    - Strobl & Hirzinger (2006): "Optimal Hand-Eye Calibration"
+    - Ulrich et al. (2020): "Hand-Eye Calibration: A Linear Approach"
+    """
+
+    print("  [Nonlinear Refinement] Starting optimization...")
+    print(f"  Initial transformation norm: {np.linalg.norm(X_init[:3, 3])*1000:.3f} mm")
+
+    # Parametrize X as [translation(3), rotation_vector(3)]
+    def matrix_to_params(X: np.ndarray) -> np.ndarray:
+        """Convert 4x4 matrix to 6D parameter vector"""
+        t = X[:3, 3]
+        R_mat = X[:3, :3]
+        r_vec = R.from_matrix(R_mat).as_rotvec()
+        return np.concatenate([t, r_vec])
+
+    def params_to_matrix(params: np.ndarray) -> np.ndarray:
+        """Convert 6D parameter vector to 4x4 matrix"""
+        X = np.eye(4, dtype=np.float64)
+        X[:3, 3] = params[:3]
+        X[:3, :3] = R.from_rotvec(params[3:]).as_matrix()
+        return X
+
+    # Initial parameters
+    x0 = matrix_to_params(X_init)
+
+    # Residual function: measures prediction error for all samples
+    def residuals(params: np.ndarray) -> np.ndarray:
+        """
+        Computes residuals for optimization.
+
+        For each sample, computes:
+        - T_camera_pred = T_sensor @ X
+        - Error = T_camera_meas - T_camera_pred
+
+        Returns residuals as [translation_errors(3*n), rotation_errors(3*n)]
+
+        Rotation errors are weighted by rotation_weight to balance with translation errors.
+        Typical translation errors: ~0.001-0.01 m (1-10 mm)
+        Typical rotation errors: ~0.01-0.1 rad (0.5-6 deg)
+        Weight of 10 makes rotation errors comparable to translation errors.
+        """
+        X = params_to_matrix(params)
+
+        res = []
+
+        for idx in indices:
+            sample = samples[idx]
+
+            # Sensor pose (measured)
+            T_sensor = matrix_from_pos_quat(
+                sample['sensor']['position'],
+                sample['sensor']['orientation']
+            )
+
+            # Camera pose (measured)
+            T_camera_meas = matrix_from_pos_quat(
+                sample['camera']['position'],
+                sample['camera']['orientation']
+            )
+
+            # Camera pose (predicted)
+            T_camera_pred = T_sensor @ X
+
+            # Translation error (meters)
+            t_error = T_camera_meas[:3, 3] - T_camera_pred[:3, 3]
+
+            # Rotation error (rotation vector in radians) - WEIGHTED
+            R_error = T_camera_meas[:3, :3] @ T_camera_pred[:3, :3].T
+            r_error = R.from_matrix(R_error).as_rotvec() * rotation_weight
+
+            # Append residuals
+            res.append(t_error)
+            res.append(r_error)
+
+        return np.concatenate(res)
+
+    # Optimize using Levenberg-Marquardt
+    result = least_squares(
+        residuals,
+        x0,
+        method='lm',
+        max_nfev=max_iterations,
+        verbose=0
+    )
+
+    # Extract refined parameters
+    X_refined = params_to_matrix(result.x)
+
+    # Compute improvement
+    initial_cost = np.sum(residuals(x0)**2)
+    final_cost = np.sum(result.fun**2)
+    improvement = (initial_cost - final_cost) / initial_cost * 100
+
+    print(f"  [Nonlinear Refinement] Optimization complete:")
+    print(f"    Iterations: {result.nfev}")
+    print(f"    Initial cost: {initial_cost:.6e}")
+    print(f"    Final cost: {final_cost:.6e}")
+    print(f"    Improvement: {improvement:.2f}%")
+    print(f"    Success: {result.success}")
+    print(f"  Refined transformation norm: {np.linalg.norm(X_refined[:3, 3])*1000:.3f} mm")
+
+    return X_refined
+
 # ----------------------------
 # Movement statistics
 # ----------------------------
@@ -1161,9 +1289,29 @@ def main():
 
     print("✓ Calibration completed\n")
 
+    # Nonlinear refinement (optional)
+    if CONFIG["USE_NONLINEAR_REFINEMENT"]:
+        print("="*70)
+        print("NONLINEAR REFINEMENT (Bundle Adjustment)")
+        print("="*70 + "\n")
+        print(f"Rotation weight: {CONFIG['ROTATION_WEIGHT']:.1f}")
+        print(f"Max iterations: {CONFIG['REFINEMENT_MAX_ITERATIONS']}\n")
+
+        X_initial = X.copy()
+        X = refine_handeye_nonlinear(
+            samples, indices, X_initial,
+            max_iterations=CONFIG["REFINEMENT_MAX_ITERATIONS"],
+            rotation_weight=CONFIG["ROTATION_WEIGHT"]
+        )
+        print()
+
     # Print transformation results
     trans_norm_mm = np.linalg.norm(X[:3, 3]) * 1000.0
     rot_deg = np.degrees(rot_angle(X[:3, :3]))
+
+    print("="*70)
+    print("FINAL TRANSFORMATION")
+    print("="*70 + "\n")
 
     print("Transformation X (sensor -> camera):")
     print(f"  Translation norm:  {trans_norm_mm:.3f} mm")

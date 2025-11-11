@@ -11,7 +11,7 @@ Configuration:
   Max movement ratio:      1.20
   Max rotation diff:       15.0 deg
   Spatial diversity:       ENABLED
-    Min trans distance:    15.0 mm
+    Min trans distance:    14.0 mm
     Min rot distance:      10.0 deg
     Target samples:        25
   Samples used:            14
@@ -19,33 +19,33 @@ Configuration:
   Avg camera-chessboard:   71.59 mm
 
 Transformation X (sensor -> camera):
-  Translation norm:  11.438 mm
-  Rotation angle:    98.1428 deg
+  Translation norm:  10.873 mm
+  Rotation angle:    99.8584 deg
 
 Matrix X:
-      0.017278     0.030506    -0.999385    -0.005480
-     -0.746655     0.665171     0.007396    -0.005414
-      0.664988     0.746068     0.034270    -0.008455
+     -0.023676    -0.004121    -0.999711    -0.005663
+     -0.713243     0.700777     0.014002    -0.005666
+      0.700517     0.713369    -0.019531    -0.007352
       0.000000     0.000000     0.000000     1.000000
 
 Rotation (Quaternion [x, y, z, w]):
-  [0.281885, -0.635142, -0.296573, 0.655118]
+  [-0.271605, 0.660300, 0.275394, -0.643733]
 
 ======================================================================
 Calibration Errors:
 ======================================================================
   Number of samples:   14
-  Rotation min:        1.5619 deg
-  Rotation median:     4.8142 deg
-  Rotation max:        12.7896 deg
-  Rotation mean:       4.8962 deg
-  Rotation std:        2.6060 deg
-  Rotation RMS:        5.5027 deg
-  Translation min:     0.976 mm
-  Translation median:  3.338 mm
-  Translation max:     9.804 mm
-  Translation mean:    3.723 mm
-  Translation std:     2.243 mm
-  Translation RMS:     4.305 mm
+  Rotation min:        1.3954 deg
+  Rotation median:     2.4830 deg
+  Rotation max:        8.6948 deg
+  Rotation mean:       3.1009 deg
+  Rotation std:        1.9062 deg
+  Rotation RMS:        3.6041 deg
+  Translation min:     1.025 mm
+  Translation median:  3.005 mm
+  Translation max:     9.467 mm
+  Translation mean:    3.556 mm
+  Translation std:     2.220 mm
+  Translation RMS:     4.149 mm
 
 ======================================================================
