@@ -28,6 +28,9 @@ find_package(Eigen3 REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(YAML_CPP REQUIRED yaml-cpp)
 
+# Find Ceres Solver (for nonlinear optimization)
+find_package(Ceres REQUIRED)
+
 # ========================================
 # INCLUDE DIRECTORIES
 # ========================================
@@ -36,6 +39,7 @@ include_directories(
   ${OpenCV_INCLUDE_DIRS}
   ${EIGEN3_INCLUDE_DIR}
   ${YAML_CPP_INCLUDE_DIRS}
+  ${CERES_INCLUDE_DIRS}
 )
 
 # ========================================
@@ -59,6 +63,7 @@ target_link_libraries(eye_in_hand_calibration_lib
   ${OpenCV_LIBRARIES}
   ${YAML_CPP_LIBRARIES}
   Eigen3::Eigen
+  Ceres::ceres
 )
 
 ament_target_dependencies(eye_in_hand_calibration_lib
@@ -138,6 +143,7 @@ ament_export_dependencies(
   OpenCV
   Eigen3
   yaml-cpp
+  Ceres
 )
 
 # ========================================

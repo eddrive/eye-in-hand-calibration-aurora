@@ -79,16 +79,32 @@ public:
 
     /**
      * @brief Select samples using advanced filtering (Python script logic)
+     * Filters in order:
+     * 1. Reprojection error < max_reproj_error
+     * 2. min_sensor_camera_dist <= sensor-camera distance <= max_sensor_camera_dist
+     * 3. Movement coherence (all samples compared against reference with lowest reproj error)
+     * 4. Spatial diversity (optional, if use_spatial_diversity=true)
+     *
      * @param max_reproj_error Maximum reprojection error (pixels)
+     * @param min_sensor_camera_dist Minimum sensor-camera distance (meters)
      * @param max_sensor_camera_dist Maximum sensor-camera distance (meters)
      * @param max_movement_ratio Maximum ratio between sensor/camera movement
      * @param max_rotation_diff Maximum rotation difference (degrees)
+     * @param use_spatial_diversity Enable spatial diversity filter
+     * @param min_trans_dist_mm Minimum translation distance between consecutive samples (mm)
+     * @param min_rot_dist_deg Minimum rotation distance between consecutive samples (deg)
+     * @param target_diverse_samples Target number of spatially diverse samples
      * @return Indices of selected samples (in order)
      */
     std::vector<size_t> selectSamplesAdvanced(double max_reproj_error,
+                                               double min_sensor_camera_dist,
                                                double max_sensor_camera_dist,
                                                double max_movement_ratio,
-                                               double max_rotation_diff);
+                                               double max_rotation_diff,
+                                               bool use_spatial_diversity = true,
+                                               double min_trans_dist_mm = 14.0,
+                                               double min_rot_dist_deg = 10.0,
+                                               int target_diverse_samples = 25);
     
     /**
      * @brief Get all collected samples

@@ -40,12 +40,24 @@ struct CalibrationConfig {
 
     // ========== Advanced Filtering (Python script logic) ==========
     double max_reproj_error_filter;     // pixels
-    double max_sensor_camera_distance;  // meters
+    double min_sensor_camera_distance;  // meters - MINIMUM distance
+    double max_sensor_camera_distance;  // meters - MAXIMUM distance
     double max_movement_ratio;          // dimensionless
     double max_rotation_diff_deg;       // degrees
     bool use_iterative_refinement;      // enable/disable
     int target_pairs;                   // target number of pairs after refinement
     int max_refinement_iterations;      // max iterations for refinement
+
+    // ========== Spatial Diversity Filter ==========
+    bool use_spatial_diversity;         // enable/disable spatial diversity filter
+    double min_trans_dist_mm;           // minimum translation distance between consecutive samples (mm)
+    double min_rot_dist_deg;            // minimum rotation distance between consecutive samples (deg)
+    int target_diverse_samples;         // target number of spatially diverse samples
+
+    // ========== Nonlinear Refinement (Bundle Adjustment) ==========
+    bool use_nonlinear_refinement;      // enable/disable nonlinear refinement
+    int refinement_max_iterations;      // maximum iterations for optimizer
+    double rotation_weight;             // weight for rotation errors in optimization
 
     // ========== Calibration Method ==========
     int calibration_method;    // 0=TSAI, 1=PARK, 2=HORAUD, 3=ANDREFF, 4=DANIILIDIS
@@ -100,14 +112,26 @@ struct CalibrationConfig {
         config.min_movement_threshold = node->declare_parameter<double>("min_movement_threshold", 0.015);
         config.min_rotation_threshold = node->declare_parameter<double>("min_rotation_threshold", 0.15);
 
-        // Advanced filtering
+        // Advanced filtering - SAME AS PYTHON eyehand_from_yaml.py
         config.max_reproj_error_filter = node->declare_parameter<double>("max_reproj_error_filter", 0.8);
-        config.max_sensor_camera_distance = node->declare_parameter<double>("max_sensor_camera_distance", 0.020);
-        config.max_movement_ratio = node->declare_parameter<double>("max_movement_ratio", 2.3);
-        config.max_rotation_diff_deg = node->declare_parameter<double>("max_rotation_diff_deg", 25.0);
-        config.use_iterative_refinement = node->declare_parameter<bool>("use_iterative_refinement", true);
+        config.min_sensor_camera_distance = node->declare_parameter<double>("min_sensor_camera_distance", 0.008);  // 8.0 mm
+        config.max_sensor_camera_distance = node->declare_parameter<double>("max_sensor_camera_distance", 0.015);  // 15.0 mm
+        config.max_movement_ratio = node->declare_parameter<double>("max_movement_ratio", 1.2);
+        config.max_rotation_diff_deg = node->declare_parameter<double>("max_rotation_diff_deg", 15.0);
+        config.use_iterative_refinement = node->declare_parameter<bool>("use_iterative_refinement", false);
         config.target_pairs = node->declare_parameter<int>("target_pairs", 20);
         config.max_refinement_iterations = node->declare_parameter<int>("max_refinement_iterations", 50);
+
+        // Spatial diversity filter - SAME AS PYTHON
+        config.use_spatial_diversity = node->declare_parameter<bool>("use_spatial_diversity", true);
+        config.min_trans_dist_mm = node->declare_parameter<double>("min_trans_dist_mm", 14.0);
+        config.min_rot_dist_deg = node->declare_parameter<double>("min_rot_dist_deg", 10.0);
+        config.target_diverse_samples = node->declare_parameter<int>("target_diverse_samples", 25);
+
+        // Nonlinear refinement (Bundle Adjustment) - SAME AS PYTHON
+        config.use_nonlinear_refinement = node->declare_parameter<bool>("use_nonlinear_refinement", true);
+        config.refinement_max_iterations = node->declare_parameter<int>("refinement_max_iterations", 100);
+        config.rotation_weight = node->declare_parameter<double>("rotation_weight", 10.0);
 
         // Calibration
         config.calibration_method = node->declare_parameter<int>("calibration_method", 1);

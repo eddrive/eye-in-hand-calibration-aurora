@@ -410,13 +410,23 @@ void HandEyeCalibrator::selectBestSamplesAndCalibrate() {
     timestamp << std::put_time(local_time, "%Y%m%d_%H%M%S");
 
     // ========================================
-    // ADVANCED FILTERING (Python script logic)
+    // ADVANCED FILTERING (Python script logic - SAME AS eyehand_from_yaml.py)
+    // Filters in order:
+    // 1. Reprojection error < 0.8px
+    // 2. Sensor-camera distance 8.0mm - 15.0mm
+    // 3. Movement coherence (ratio<1.2, Δrot<15.0°) - ALL vs REFERENCE
+    // 4. Spatial diversity (optional, if enabled)
     // ========================================
     auto selected = sample_manager_->selectSamplesAdvanced(
         config_.max_reproj_error_filter,
+        config_.min_sensor_camera_distance,
         config_.max_sensor_camera_distance,
         config_.max_movement_ratio,
-        config_.max_rotation_diff_deg
+        config_.max_rotation_diff_deg,
+        config_.use_spatial_diversity,
+        config_.min_trans_dist_mm,
+        config_.min_rot_dist_deg,
+        config_.target_diverse_samples
     );
 
     if (selected.empty()) {
@@ -466,6 +476,25 @@ void HandEyeCalibrator::selectBestSamplesAndCalibrate() {
     }
 
     RCLCPP_INFO(this->get_logger(), "✅ Calibration successful!");
+
+    // Nonlinear refinement (Bundle Adjustment) - MATCHING PYTHON SCRIPT
+    if (config_.use_nonlinear_refinement) {
+        RCLCPP_INFO(this->get_logger(),
+            "\n========== NONLINEAR REFINEMENT (Bundle Adjustment) ==========");
+        RCLCPP_INFO(this->get_logger(), "Rotation weight: %.1f", config_.rotation_weight);
+        RCLCPP_INFO(this->get_logger(), "Max iterations: %d\n", config_.refinement_max_iterations);
+
+        Eigen::Matrix4d X_initial = result.transformation;
+        result.transformation = solver_->refineHandEyeNonlinear(
+            sample_manager_->getSamples(),
+            selected,
+            X_initial,
+            config_.refinement_max_iterations,
+            config_.rotation_weight
+        );
+
+        RCLCPP_INFO(this->get_logger(), "✅ Nonlinear refinement completed!");
+    }
 
     // Compute and print absolute errors (matching Python script)
     solver_->computeAndPrintAbsoluteErrors(

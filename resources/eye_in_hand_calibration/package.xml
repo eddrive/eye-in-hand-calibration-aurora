@@ -33,6 +33,7 @@
   <depend>libopencv-dev</depend>
   <depend>libeigen3-dev</depend>
   <depend>libyaml-cpp-dev</depend>
+  <depend>libceres-dev</depend>
 
   <!-- Testing dependencies -->
   <test_depend>ament_lint_auto</test_depend>

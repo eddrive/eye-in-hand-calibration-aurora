@@ -1,0 +1,51 @@
+======================================================================
+HAND-EYE CALIBRATION RESULTS
+======================================================================
+
+Configuration:
+  Input file:              data/results/collected_samples_250_kalman_filter.yaml
+  Chessboard file:         hardware/chessboards/measured_points/chess_11x9_3mm_inter.yaml
+  Method:                  tsai
+  Max reproj error:        0.8 px
+  Sensor-camera distance:  8.0 - 15.0 mm
+  Max movement ratio:      1.20
+  Max rotation diff:       15.0 deg
+  Spatial diversity:       ENABLED
+    Min trans distance:    14.0 mm
+    Min rot distance:      10.0 deg
+    Target samples:        25
+  Samples used:            16
+  Sample indices:          [1, 4, 5, 10, 12, 15, 17, 25, 65, 82, 95, 151, 156, 157, 205, 228]
+  Avg camera-chessboard:   63.83 mm
+
+Transformation X (sensor -> camera):
+  Translation norm:  9.616 mm
+  Rotation angle:    100.5246 deg
+
+Matrix X:
+     -0.004255    -0.013679    -0.999897    -0.005657
+     -0.758124     0.652086    -0.005695    -0.004707
+      0.652096     0.758022    -0.013145    -0.006189
+      0.000000     0.000000     0.000000     1.000000
+
+Rotation (Quaternion [x, y, z, w]):
+  [-0.298666, 0.646043, 0.291129, -0.639274]
+
+======================================================================
+Calibration Errors:
+======================================================================
+  Number of samples:   16
+  Rotation min:        1.2603 deg
+  Rotation median:     3.4738 deg
+  Rotation max:        8.8996 deg
+  Rotation mean:       4.1850 deg
+  Rotation std:        2.1953 deg
+  Rotation RMS:        4.6938 deg
+  Translation min:     2.139 mm
+  Translation median:  5.058 mm
+  Translation max:     20.624 mm
+  Translation mean:    6.054 mm
+  Translation std:     4.703 mm
+  Translation RMS:     7.575 mm
+
+======================================================================

@@ -7,6 +7,8 @@
 #include <map>
 #include <algorithm>
 #include <numeric>
+#include <ceres/ceres.h>
+#include <ceres/rotation.h>
 
 namespace eye_in_hand_calibration {
 
@@ -64,32 +66,6 @@ CalibrationResult CalibrationSolver::solve(
         // Convert result
         result.transformation = cvToEigen(R_cam2gripper, t_cam2gripper);
 
-        // Evaluate calibration quality
-        result.average_error = evaluateCalibration(samples, selected_indices,
-                                                   result.transformation);
-
-        // Calculate detailed error statistics
-        std::vector<double> errors;
-        for (size_t i = 0; i < selected_indices.size(); ++i) {
-            for (size_t j = i + 1; j < selected_indices.size(); ++j) {
-                size_t idx_i = selected_indices[i];
-                size_t idx_j = selected_indices[j];
-
-                Eigen::Matrix4d A = samples[idx_j].sensor_pose *
-                                   samples[idx_i].sensor_pose.inverse();
-                Eigen::Matrix4d B = samples[idx_j].camera_pose *
-                                   samples[idx_i].camera_pose.inverse();
-
-                double error = calculatePairError(A, B, result.transformation);
-                errors.push_back(error);
-            }
-        }
-
-        if (!errors.empty()) {
-            result.min_error = *std::min_element(errors.begin(), errors.end());
-            result.max_error = *std::max_element(errors.begin(), errors.end());
-        }
-
         // Validate result
         result.success = validateResult(result);
 
@@ -98,12 +74,6 @@ CalibrationResult CalibrationSolver::solve(
             RCLCPP_INFO(logger_, "\n========== CALIBRATION RESULT ==========");
             RCLCPP_INFO(logger_, "Success: %s", result.success ? "YES" : "NO");
             RCLCPP_INFO(logger_, "Samples used: %zu", result.num_samples_used);
-
-            RCLCPP_INFO(logger_, "\n--- AX=XB Errors (Relative Motion Consistency) ---");
-            RCLCPP_INFO(logger_, "Number of pairs: %zu", errors.size());
-            RCLCPP_INFO(logger_, "Average error: %.6f m", result.average_error);
-            RCLCPP_INFO(logger_, "Min error: %.6f m", result.min_error);
-            RCLCPP_INFO(logger_, "Max error: %.6f m", result.max_error);
 
             printTransformation(result.transformation);
 
@@ -197,62 +167,6 @@ Eigen::Matrix4d CalibrationSolver::cvToEigen(const cv::Mat& R,
     }
     
     return transform;
-}
-
-double CalibrationSolver::evaluateCalibration(
-    const std::vector<CalibrationSample>& samples,
-    const std::vector<size_t>& selected_indices,
-    const Eigen::Matrix4d& transformation) {
-    
-    if (selected_indices.size() < 2) {
-        return 0.0;
-    }
-    
-    double total_error = 0.0;
-    int num_pairs = 0;
-    
-    // Evaluate all pairs: AX = XB
-    // where X is the hand-eye transformation
-    for (size_t i = 0; i < selected_indices.size(); ++i) {
-        for (size_t j = i + 1; j < selected_indices.size(); ++j) {
-            size_t idx_i = selected_indices[i];
-            size_t idx_j = selected_indices[j];
-            
-            // A = gripper_j * gripper_i^-1
-            Eigen::Matrix4d A = samples[idx_j].sensor_pose * 
-                               samples[idx_i].sensor_pose.inverse();
-            
-            // B = camera_j * camera_i^-1
-            Eigen::Matrix4d B = samples[idx_j].camera_pose * 
-                               samples[idx_i].camera_pose.inverse();
-            
-            double error = calculatePairError(A, B, transformation);
-            total_error += error;
-            num_pairs++;
-        }
-    }
-    
-    return num_pairs > 0 ? total_error / num_pairs : 0.0;
-}
-
-double CalibrationSolver::calculatePairError(const Eigen::Matrix4d& A,
-                                             const Eigen::Matrix4d& B,
-                                             const Eigen::Matrix4d& X) const {
-    // Calculate AX = XB error
-    // Error metric: ||AX - XB|| (Frobenius norm of translation difference)
-    
-    Eigen::Matrix4d AX = A * X;
-    Eigen::Matrix4d XB = X * B;
-    
-    // Translation error
-    Eigen::Vector3d t_error = AX.block<3, 1>(0, 3) - XB.block<3, 1>(0, 3);
-    double translation_error = t_error.norm();
-    
-    // Rotation error (optional, less commonly used)
-    // Eigen::Matrix3d R_error = AX.block<3,3>(0,0) * XB.block<3,3>(0,0).transpose();
-    // double rotation_error = std::acos((R_error.trace() - 1.0) / 2.0);
-    
-    return translation_error;
 }
 
 void CalibrationSolver::printTransformation(const Eigen::Matrix4d& transform) const {
@@ -387,9 +301,6 @@ bool CalibrationSolver::saveResult(const std::string& filename,
         // Quality metrics
         out << YAML::Key << "quality";
         out << YAML::Value << YAML::BeginMap;
-        out << YAML::Key << "average_error" << YAML::Value << result.average_error;
-        out << YAML::Key << "min_error" << YAML::Value << result.min_error;
-        out << YAML::Key << "max_error" << YAML::Value << result.max_error;
         out << YAML::Key << "total_samples_collected" << YAML::Value << total_samples;
         out << YAML::Key << "successful_detections" << YAML::Value << successful_detections;
         out << YAML::Key << "detection_rate_percent" << YAML::Value <<
@@ -481,81 +392,81 @@ std::vector<size_t> CalibrationSolver::refineByError(
             break;
         }
 
-        // Evaluate error for each consecutive pair
-        struct PairError {
-            size_t k;
-            size_t idx_i;
-            size_t idx_j;
+        // Evaluate prediction error for each sample (DIRECT PREDICTION ERROR)
+        struct SampleError {
+            size_t idx;
             double trans_err_mm;
             double rot_err_deg;
             double combined_err;
         };
 
-        std::vector<PairError> pair_errors;
+        std::vector<SampleError> sample_errors;
 
-        for (size_t k = 0; k < current_indices.size() - 1; ++k) {
-            size_t idx_i = current_indices[k];
-            size_t idx_j = current_indices[k + 1];
+        for (size_t idx : current_indices) {
+            const auto& sample = samples[idx];
 
-            const auto& sample_i = samples[idx_i];
-            const auto& sample_j = samples[idx_j];
+            // Predicted camera pose: T_camera_pred = T_sensor @ X
+            Eigen::Matrix4d T_camera_pred = sample.sensor_pose * result.transformation;
 
-            // A = sensor_j * sensor_i^-1
-            Eigen::Matrix4d A = sample_j.sensor_pose * sample_i.sensor_pose.inverse();
+            // Measured camera pose
+            const Eigen::Matrix4d& T_camera_meas = sample.camera_pose;
 
-            // B = camera_j * camera_i^-1
-            Eigen::Matrix4d B = sample_j.camera_pose * sample_i.camera_pose.inverse();
+            // Translation error
+            Eigen::Vector3d t_pred = T_camera_pred.block<3, 1>(0, 3);
+            Eigen::Vector3d t_meas = T_camera_meas.block<3, 1>(0, 3);
+            double trans_err_mm = (t_meas - t_pred).norm() * 1000.0;
 
-            // Calculate AX and XB
-            Eigen::Matrix4d AX = A * result.transformation;
-            Eigen::Matrix4d XB = result.transformation * B;
-            Eigen::Matrix4d Delta = AX * XB.inverse();
+            // Rotation error
+            Eigen::Matrix3d R_pred = T_camera_pred.block<3, 3>(0, 0);
+            Eigen::Matrix3d R_meas = T_camera_meas.block<3, 3>(0, 0);
+            Eigen::Matrix3d R_rel = R_pred.transpose() * R_meas;
 
-            // Errors
-            double trans_err_mm = Delta.block<3, 1>(0, 3).norm() * 1000.0;
-
-            double trace = Delta.block<3, 3>(0, 0).trace();
+            double trace = R_rel.trace();
             double cos_angle = std::max(-1.0, std::min(1.0, (trace - 1.0) / 2.0));
             double rot_err_deg = std::acos(cos_angle) * 180.0 / M_PI;
+
+            // Normalize rotation error to [0, 180]
+            if (rot_err_deg > 180.0) {
+                rot_err_deg = 360.0 - rot_err_deg;
+            }
 
             // Combined error (weight rotation more)
             double combined_err = trans_err_mm + rot_err_deg * 5.0;
 
-            pair_errors.push_back({k, idx_i, idx_j, trans_err_mm, rot_err_deg, combined_err});
+            sample_errors.push_back({idx, trans_err_mm, rot_err_deg, combined_err});
         }
 
-        // Find worst pair
-        auto worst_it = std::max_element(pair_errors.begin(), pair_errors.end(),
-            [](const PairError& a, const PairError& b) {
+        // Find worst sample
+        auto worst_it = std::max_element(sample_errors.begin(), sample_errors.end(),
+            [](const SampleError& a, const SampleError& b) {
                 return a.combined_err < b.combined_err;
             });
 
-        if (worst_it == pair_errors.end()) {
-            RCLCPP_WARN(logger_, "No worst pair found, stopping refinement");
+        if (worst_it == sample_errors.end()) {
+            RCLCPP_WARN(logger_, "No worst sample found, stopping refinement");
             break;
         }
 
-        PairError worst = *worst_it;
-        worst_pair_history.push_back({worst.idx_i, worst.idx_j});
+        SampleError worst = *worst_it;
+        worst_pair_history.push_back({worst.idx, worst.idx});  // Dummy pair for compatibility
 
         // Keep only recent history
         if (worst_pair_history.size() > static_cast<size_t>(PATTERN_THRESHOLD)) {
             worst_pair_history.erase(worst_pair_history.begin());
         }
 
-        // Analyze if a sample appears repeatedly in worst pairs
-        size_t sample_to_remove = worst.idx_j;  // Default: remove second element
-        std::string removal_reason = "worst_pair";
+        // Analyze if a sample appears repeatedly as worst
+        size_t sample_to_remove = worst.idx;  // Remove worst sample
+        std::string removal_reason = "worst_prediction_error";
 
         if (worst_pair_history.size() >= static_cast<size_t>(PATTERN_THRESHOLD)) {
-            // Count how many times each sample appears
+            // Count how many times each sample appears as worst
             std::map<size_t, int> sample_counts;
             for (const auto& [si, sj] : worst_pair_history) {
-                sample_counts[si]++;
-                sample_counts[sj]++;
+                sample_counts[si]++;  // Both are the same (dummy pairs)
             }
 
-            // Find problematic samples
+            // Find problematic samples (appearing repeatedly)
             std::vector<size_t> problematic_samples;
             for (const auto& [sample, count] : sample_counts) {
                 if (count >= PATTERN_THRESHOLD) {
@@ -564,33 +475,22 @@ std::vector<size_t> CalibrationSolver::refineByError(
             }
 
             if (!problematic_samples.empty()) {
-                // If multiple problematic, choose one with highest average error
+                // If multiple problematic, choose one with highest error
                 if (problematic_samples.size() == 1) {
                     sample_to_remove = problematic_samples[0];
+                    removal_reason = "outlier (worst " + std::to_string(sample_counts[sample_to_remove]) + " times)";
                 } else {
-                    std::map<size_t, double> sample_errors;
-                    for (size_t s : problematic_samples) {
-                        std::vector<double> errors;
-                        for (const auto& pe : pair_errors) {
-                            if (pe.idx_i == s || pe.idx_j == s) {
-                                errors.push_back(pe.combined_err);
+                    // Find sample with highest error among problematic ones
+                    double max_err = -1.0;
+                    for (const auto& se : sample_errors) {
+                        if (std::find(problematic_samples.begin(), problematic_samples.end(), se.idx) != problematic_samples.end()) {
+                            if (se.combined_err > max_err) {
+                                max_err = se.combined_err;
+                                sample_to_remove = se.idx;
                             }
                         }
-                        if (!errors.empty()) {
-                            double avg = std::accumulate(errors.begin(), errors.end(), 0.0) / errors.size();
-                            sample_errors[s] = avg;
-                        }
                     }
-
-                    // Find max error sample
-                    auto max_it = std::max_element(sample_errors.begin(), sample_errors.end(),
-                        [](const auto& a, const auto& b) { return a.second < b.second; });
-
-                    if (max_it != sample_errors.end()) {
-                        sample_to_remove = max_it->first;
-                        removal_reason = "outlier (appeared in " +
-                                       std::to_string(sample_counts[sample_to_remove]) + " worst pairs)";
-                    }
+                    removal_reason = "outlier (worst " + std::to_string(sample_counts[sample_to_remove]) + " times)";
                 }
 
                 // Clear history after removing outlier
@@ -606,9 +506,9 @@ std::vector<size_t> CalibrationSolver::refineByError(
         }
 
         RCLCPP_INFO(logger_,
-            "[Iter %2d] Removed sample %3zu (pair %3zu→%3zu): "
+            "[Iter %2d] Removed sample %3zu: "
             "err=%5.1fmm/%5.1f° | Reason: %s | Remaining: %zu samples",
-            iteration + 1, sample_to_remove, worst.idx_i, worst.idx_j,
+            iteration + 1, sample_to_remove,
             worst.trans_err_mm, worst.rot_err_deg,
             removal_reason.c_str(), current_indices.size());
     }
@@ -747,6 +647,215 @@ void CalibrationSolver::computeAndPrintAbsoluteErrors(
     RCLCPP_INFO(logger_, "  std    = %7.3f mm", trans_stats["std"]);
     RCLCPP_INFO(logger_, "  rms    = %7.3f mm", trans_stats["rms"]);
     RCLCPP_INFO(logger_, "====================================================================\n");
+}
+
+// ============================================
+// NONLINEAR REFINEMENT (Bundle Adjustment)
+// ============================================
+
+/**
+ * @brief Ceres cost function for hand-eye calibration refinement
+ *
+ * Residual: T_camera_meas vs T_camera_pred = T_sensor @ X
+ * Where X is parametrized as [translation(3), rotation_axis_angle(3)]
+ */
+struct HandEyeResidual {
+    HandEyeResidual(const Eigen::Matrix4d& T_sensor_measured,
+                    const Eigen::Matrix4d& T_camera_measured,
+                    double rotation_weight)
+        : T_sensor_measured_(T_sensor_measured),
+          T_camera_measured_(T_camera_measured),
+          rotation_weight_(rotation_weight) {}
+
+    template <typename T>
+    bool operator()(const T* const translation,
+                   const T* const rotation_axis_angle,
+                   T* residuals) const {
+        // Build transformation matrix X from parameters
+        // X = [R(rotation_axis_angle) | translation]
+        //     [        0              |      1      ]
+
+        // Convert axis-angle to rotation matrix using Ceres
+        T rotation_matrix[9];
+        ceres::AngleAxisToRotationMatrix(rotation_axis_angle, rotation_matrix);
+
+        // Predicted camera pose: T_camera_pred = T_sensor @ X
+        // Extract sensor rotation and translation
+        Eigen::Matrix<T, 3, 3> R_sensor = T_sensor_measured_.block<3, 3>(0, 0).cast<T>();
+        Eigen::Matrix<T, 3, 1> t_sensor = T_sensor_measured_.block<3, 1>(0, 3).cast<T>();
+
+        // Build X rotation matrix (3x3) from Ceres output
+        Eigen::Matrix<T, 3, 3> R_X;
+        R_X << rotation_matrix[0], rotation_matrix[1], rotation_matrix[2],
+               rotation_matrix[3], rotation_matrix[4], rotation_matrix[5],
+               rotation_matrix[6], rotation_matrix[7], rotation_matrix[8];
+
+        Eigen::Matrix<T, 3, 1> t_X;
+        t_X << translation[0], translation[1], translation[2];
+
+        // Compute predicted camera pose
+        Eigen::Matrix<T, 3, 3> R_camera_pred = R_sensor * R_X;
+        Eigen::Matrix<T, 3, 1> t_camera_pred = R_sensor * t_X + t_sensor;
+
+        // Measured camera pose
+        Eigen::Matrix<T, 3, 3> R_camera_meas = T_camera_measured_.block<3, 3>(0, 0).cast<T>();
+        Eigen::Matrix<T, 3, 1> t_camera_meas = T_camera_measured_.block<3, 1>(0, 3).cast<T>();
+
+        // Translation residuals (meters)
+        Eigen::Matrix<T, 3, 1> translation_error = t_camera_meas - t_camera_pred;
+        residuals[0] = translation_error(0);
+        residuals[1] = translation_error(1);
+        residuals[2] = translation_error(2);
+
+        // Rotation residuals (weighted axis-angle representation)
+        // R_error = R_pred^T * R_meas
+        Eigen::Matrix<T, 3, 3> R_error = R_camera_pred.transpose() * R_camera_meas;
+
+        // Convert rotation matrix to axis-angle
+        T rotation_error[9];
+        rotation_error[0] = R_error(0, 0);
+        rotation_error[1] = R_error(0, 1);
+        rotation_error[2] = R_error(0, 2);
+        rotation_error[3] = R_error(1, 0);
+        rotation_error[4] = R_error(1, 1);
+        rotation_error[5] = R_error(1, 2);
+        rotation_error[6] = R_error(2, 0);
+        rotation_error[7] = R_error(2, 1);
+        rotation_error[8] = R_error(2, 2);
+
+        T axis_angle_error[3];
+        ceres::RotationMatrixToAngleAxis(rotation_error, axis_angle_error);
+
+        // Apply rotation weight to make rotation errors comparable to translation errors
+        residuals[3] = axis_angle_error[0] * T(rotation_weight_);
+        residuals[4] = axis_angle_error[1] * T(rotation_weight_);
+        residuals[5] = axis_angle_error[2] * T(rotation_weight_);
+
+        return true;
+    }
+
+    static ceres::CostFunction* Create(const Eigen::Matrix4d& T_sensor_measured,
+                                       const Eigen::Matrix4d& T_camera_measured,
+                                       double rotation_weight) {
+        return new ceres::AutoDiffCostFunction<HandEyeResidual, 6, 3, 3>(
+            new HandEyeResidual(T_sensor_measured, T_camera_measured, rotation_weight));
+    }
+
+private:
+    const Eigen::Matrix4d T_sensor_measured_;
+    const Eigen::Matrix4d T_camera_measured_;
+    const double rotation_weight_;
+};
+
+Eigen::Matrix4d CalibrationSolver::refineHandEyeNonlinear(
+    const std::vector<CalibrationSample>& samples,
+    const std::vector<size_t>& selected_indices,
+    const Eigen::Matrix4d& X_init,
+    int max_iterations,
+    double rotation_weight) {
+
+    RCLCPP_INFO(logger_, "\n========== NONLINEAR REFINEMENT (Bundle Adjustment) ==========");
+    RCLCPP_INFO(logger_, "Using Ceres Solver with Levenberg-Marquardt");
+    RCLCPP_INFO(logger_, "Rotation weight: %.1f", rotation_weight);
+    RCLCPP_INFO(logger_, "Max iterations: %d", max_iterations);
+
+    // Initial transformation norm
+    double initial_trans_norm = X_init.block<3, 1>(0, 3).norm() * 1000.0;
+    RCLCPP_INFO(logger_, "Initial transformation norm: %.3f mm\n", initial_trans_norm);
+
+    // Parametrize X as [translation(3), rotation_axis_angle(3)]
+    Eigen::Vector3d translation = X_init.block<3, 1>(0, 3);
+    Eigen::Matrix3d rotation_matrix = X_init.block<3, 3>(0, 0);
+
+    // Convert rotation matrix to axis-angle using Ceres
+    double rotation_matrix_array[9] = {
+        rotation_matrix(0, 0), rotation_matrix(0, 1), rotation_matrix(0, 2),
+        rotation_matrix(1, 0), rotation_matrix(1, 1), rotation_matrix(1, 2),
+        rotation_matrix(2, 0), rotation_matrix(2, 1), rotation_matrix(2, 2)
+    };
+
+    double rotation_axis_angle[3];
+    ceres::RotationMatrixToAngleAxis(rotation_matrix_array, rotation_axis_angle);
+
+    // Parameters to optimize
+    double params_translation[3] = {translation(0), translation(1), translation(2)};
+    double params_rotation[3] = {rotation_axis_angle[0], rotation_axis_angle[1], rotation_axis_angle[2]};
+
+    // Build optimization problem
+    ceres::Problem problem;
+
+    for (size_t idx : selected_indices) {
+        if (idx >= samples.size()) {
+            RCLCPP_WARN(logger_, "Invalid sample index: %zu", idx);
+            continue;
+        }
+
+        const auto& sample = samples[idx];
+
+        // Add residual block for this sample
+        ceres::CostFunction* cost_function = HandEyeResidual::Create(
+            sample.sensor_pose,
+            sample.camera_pose,
+            rotation_weight
+        );
+
+        problem.AddResidualBlock(cost_function, nullptr, params_translation, params_rotation);
+    }
+
+    // Configure solver
+    ceres::Solver::Options options;
+    options.linear_solver_type = ceres::DENSE_QR;
+    options.minimizer_progress_to_stdout = false;
+    options.max_num_iterations = max_iterations;
+    options.function_tolerance = 1e-6;
+    options.gradient_tolerance = 1e-10;
+    options.parameter_tolerance = 1e-8;
+
+    // Solve
+    ceres::Solver::Summary summary;
+    ceres::Solve(options, &problem, &summary);
+
+    // Print summary
+    RCLCPP_INFO(logger_, "  [Nonlinear Refinement] Optimization complete:");
+    RCLCPP_INFO(logger_, "    Iterations: %d", static_cast<int>(summary.iterations.size()));
+    RCLCPP_INFO(logger_, "    Initial cost: %.6e", summary.initial_cost);
+    RCLCPP_INFO(logger_, "    Final cost: %.6e", summary.final_cost);
+
+    double improvement = 0.0;
+    if (summary.initial_cost > 0) {
+        improvement = (summary.initial_cost - summary.final_cost) / summary.initial_cost * 100.0;
+    }
+    RCLCPP_INFO(logger_, "    Improvement: %.2f%%", improvement);
+    RCLCPP_INFO(logger_, "    Termination: %s",
+               ceres::TerminationTypeToString(summary.termination_type));
+
+    // Build refined transformation matrix
+    Eigen::Matrix4d X_refined = Eigen::Matrix4d::Identity();
+
+    // Set translation
+    X_refined(0, 3) = params_translation[0];
+    X_refined(1, 3) = params_translation[1];
+    X_refined(2, 3) = params_translation[2];
+
+    // Convert axis-angle back to rotation matrix
+    double refined_rotation_matrix[9];
+    ceres::AngleAxisToRotationMatrix(params_rotation, refined_rotation_matrix);
+
+    X_refined(0, 0) = refined_rotation_matrix[0];
+    X_refined(0, 1) = refined_rotation_matrix[1];
+    X_refined(0, 2) = refined_rotation_matrix[2];
+    X_refined(1, 0) = refined_rotation_matrix[3];
+    X_refined(1, 1) = refined_rotation_matrix[4];
+    X_refined(1, 2) = refined_rotation_matrix[5];
+    X_refined(2, 0) = refined_rotation_matrix[6];
+    X_refined(2, 1) = refined_rotation_matrix[7];
+    X_refined(2, 2) = refined_rotation_matrix[8];
+
+    double refined_trans_norm = X_refined.block<3, 1>(0, 3).norm() * 1000.0;
+    RCLCPP_INFO(logger_, "  Refined transformation norm: %.3f mm", refined_trans_norm);
+    RCLCPP_INFO(logger_, "==============================================================\n");
+
+    return X_refined;
 }
 
 } // namespace eye_in_hand_calibration

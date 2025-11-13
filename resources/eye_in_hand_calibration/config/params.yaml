@@ -3,10 +3,13 @@ hand_eye_calibrator:
     # ===========================================
     # TOPICS & FRAMES
     # ===========================================
-    
+
     # Compressed image feed from endoscope camera
     image_topic: "/endoscope/image_raw/compressed"
-    
+
+    # Aurora tracking data topic (PoseStamped)
+    aurora_topic: "/aurora/sensor0"
+
     # TF frame hierarchy: aurora_base -> endo_aurora -> [calibration] -> endo_optical
     parent_frame: "aurora_base"        # Fixed Aurora tracking reference
     child_frame: "endo_aurora"         # Aurora sensor on endoscope
@@ -23,10 +26,10 @@ hand_eye_calibrator:
     # COLLECTION PARAMETERS
     # ===========================================
     
-    max_samples: 50                   # Total samples to collect
+    max_samples: 500                   # Total samples to collect
     final_poses: 20                    # Best samples used for calibration (diversity + quality)
-    max_error_threshold: 0.05          # Max acceptable AX=XB error (m) - surgical precision
-    max_pose_age_ms: 20                # Max time diff for Aurora-image sync (ms)
+    max_error_threshold: 0.05          # Max acceptable prediction error (m) - surgical precision
+    max_pose_age_ms: 10                # Max time diff for Aurora-image sync (ms)
     aurora_buffer_size: 5000           # Circular buffer size for Aurora poses
     
     # ===========================================
@@ -59,14 +62,39 @@ hand_eye_calibrator:
     min_movement_threshold: 0.01       # Min translation between samples (m) - 10mm for endoscope
     min_rotation_threshold: 0.26       # Min rotation between samples (rad) - ~15° for diversity
 
-    # Advanced filtering (based on handeye_from_yaml.py)
-    max_reproj_error_filter: 0.8       # Max reprojection error for final selection (px)
-    max_sensor_camera_distance: 0.020  # Max sensor-camera distance (m) - 20mm for endoscope
-    max_movement_ratio: 2.3            # Max ratio between sensor/camera movement
-    max_rotation_diff_deg: 25.0        # Max difference in rotation angles (degrees)
-    use_iterative_refinement: true     # Enable iterative pair selection based on AX≈XB error
+    # ===========================================
+    # ADVANCED FILTERING - SAME AS eyehand_from_yaml.py
+    # Filters applied in order:
+    # 1. Reprojection error < max_reproj_error_filter
+    # 2. min_sensor_camera_distance <= dist <= max_sensor_camera_distance
+    # 3. Movement coherence (ALL samples vs REFERENCE with lowest reproj error)
+    # 4. Spatial diversity (optional, if use_spatial_diversity=true)
+    # ===========================================
+    max_reproj_error_filter: 0.8       # Max reprojection error (px)
+    min_sensor_camera_distance: 0.008  # Min sensor-camera distance (m) - 8.0mm
+    max_sensor_camera_distance: 0.015  # Max sensor-camera distance (m) - 15.0mm
+    max_movement_ratio: 1.2            # Max ratio between sensor/camera movement
+    max_rotation_diff_deg: 15.0        # Max rotation difference (degrees)
+
+    # Iterative refinement (currently DISABLED in Python)
+    use_iterative_refinement: false    # Enable iterative pair selection based on AX≈XB error
     target_pairs: 20                   # Target number of pairs after refinement
     max_refinement_iterations: 50      # Maximum refinement iterations
+
+    # ===========================================
+    # SPATIAL DIVERSITY FILTER
+    # ===========================================
+    use_spatial_diversity: true        # Enable spatial diversity filter
+    min_trans_dist_mm: 14.0            # Min translation distance between consecutive samples (mm)
+    min_rot_dist_deg: 10.0             # Min rotation distance between consecutive samples (deg)
+    target_diverse_samples: 25         # Target number of spatially diverse samples
+
+    # ===========================================
+    # NONLINEAR REFINEMENT (Bundle Adjustment)
+    # ===========================================
+    use_nonlinear_refinement: true     # Enable nonlinear refinement with Levenberg-Marquardt
+    refinement_max_iterations: 100     # Maximum iterations for optimizer
+    rotation_weight: 10.0              # Weight for rotation errors in optimization
     
     # ===========================================
     # OUTPUT

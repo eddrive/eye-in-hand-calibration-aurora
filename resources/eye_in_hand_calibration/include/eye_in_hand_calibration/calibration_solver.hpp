@@ -15,18 +15,12 @@ namespace eye_in_hand_calibration {
  */
 struct CalibrationResult {
     Eigen::Matrix4d transformation;     // Hand-eye transformation matrix
-    double average_error;               // Average error across all sample pairs
-    double max_error;                   // Maximum error in any sample pair
-    double min_error;                   // Minimum error in any sample pair
     int method_used;                    // Calibration method (0-4)
     size_t num_samples_used;            // Number of samples used
     bool success;                       // Overall success flag
-    
+
     CalibrationResult()
         : transformation(Eigen::Matrix4d::Identity()),
-          average_error(0.0),
-          max_error(0.0),
-          min_error(0.0),
           method_used(-1),
           num_samples_used(0),
           success(false) {}
@@ -70,17 +64,6 @@ public:
                            bool verbose = true);
     
     /**
-     * @brief Evaluate calibration quality
-     * @param samples All samples
-     * @param selected_indices Indices of samples used
-     * @param transformation Computed hand-eye transformation
-     * @return Average reprojection error
-     */
-    double evaluateCalibration(const std::vector<CalibrationSample>& samples,
-                               const std::vector<size_t>& selected_indices,
-                               const Eigen::Matrix4d& transformation);
-    
-    /**
      * @brief Save calibration result to YAML file
      * @param filename Output file path
      * @param result Calibration result to save
@@ -113,7 +96,10 @@ public:
     static std::string getMethodName(Method method);
 
     /**
-     * @brief Iterative refinement: removes worst samples based on AX≈XB error
+     * @brief Iterative refinement: removes worst samples based on prediction error
+     * Uses direct prediction error (T_predicted = T_sensor @ X vs T_measured)
+     * instead of AX≈XB pairwise consistency error
+     *
      * @param samples All calibration samples
      * @param indices Current sample indices
      * @param target_pairs Target number of pairs (samples - 1)
@@ -141,6 +127,29 @@ public:
     void computeAndPrintAbsoluteErrors(const std::vector<CalibrationSample>& samples,
                                         const std::vector<size_t>& selected_indices,
                                         const Eigen::Matrix4d& transformation);
+
+    /**
+     * @brief Refine hand-eye calibration using nonlinear optimization (Bundle Adjustment)
+     *
+     * Matches Python script's refine_handeye_nonlinear() method:
+     * - Uses Ceres Solver with Levenberg-Marquardt algorithm
+     * - Minimizes reprojection error of camera poses
+     * - Parametrizes X as [translation(3), rotation_vector(3)]
+     * - Optimizes: T_camera_pred = T_sensor @ X vs T_camera_meas
+     *
+     * @param samples All calibration samples
+     * @param selected_indices Indices of samples used
+     * @param X_init Initial transformation (from closed-form solution)
+     * @param max_iterations Maximum optimizer iterations
+     * @param rotation_weight Weight for rotation errors (higher = prioritize rotation)
+     * @return Refined transformation matrix
+     */
+    Eigen::Matrix4d refineHandEyeNonlinear(
+        const std::vector<CalibrationSample>& samples,
+        const std::vector<size_t>& selected_indices,
+        const Eigen::Matrix4d& X_init,
+        int max_iterations = 100,
+        double rotation_weight = 10.0);
 
 private:
     /**
@@ -171,14 +180,7 @@ private:
      * @brief Convert OpenCV rotation and translation to Eigen matrix
      */
     Eigen::Matrix4d cvToEigen(const cv::Mat& R, const cv::Mat& t) const;
-    
-    /**
-     * @brief Calculate error for a single sample pair
-     */
-    double calculatePairError(const Eigen::Matrix4d& A,
-                             const Eigen::Matrix4d& B,
-                             const Eigen::Matrix4d& X) const;
-    
+
     /**
      * @brief Print transformation details
      */
