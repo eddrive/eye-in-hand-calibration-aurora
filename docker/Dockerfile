@@ -79,6 +79,15 @@ RUN apt-get update && apt-get install -y \
     python3-opencv \
     && apt-get clean
 
+# Install Ceres Solver for nonlinear optimization (Bundle Adjustment)
+RUN apt-get update && apt-get install -y \
+    libceres-dev \
+    libgoogle-glog-dev \
+    libgflags-dev \
+    libatlas-base-dev \
+    libsuitesparse-dev \
+    && apt-get clean
+
 # ============================================
 # Python packages
 # ============================================
@@ -87,7 +96,9 @@ RUN pip3 install --upgrade pip
 RUN pip3 install --no-cache-dir \
     numpy \
     opencv-python \
-    pyyaml
+    pyyaml \
+    scipy \
+    matplotlib
 
 # ============================================
 # ROS2 Workspace Setup

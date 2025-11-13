@@ -99,7 +99,7 @@ sleep 3
 echo "=========================================="
 echo "Starting Aurora tracking system..."
 echo "=========================================="
-ros2 launch aurora_ndi_ros2_driver aurora_pub.launch.py > /dev/null 2>&1 &
+ros2 launch aurora_ndi_ros2_driver aurora_tracking.launch.py > /dev/null 2>&1 &
 
 AURORA_PID=$!
 echo "Aurora node started (PID: $AURORA_PID)"
