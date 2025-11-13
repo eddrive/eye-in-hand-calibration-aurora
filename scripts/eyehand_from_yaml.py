@@ -783,10 +783,10 @@ def analyze_movements(samples: List[Dict], indices: List[int]) -> None:
         # B = camera_j * camera_i^-1
         B = T_cam_j @ T_inv(T_cam_i)
 
-        # Analyze movements
-        trans_A = np.linalg.norm(A[:3, 3]) * 1000.0  # mm
+        # Analyze movements (same method as filter 3: euclidean distance between positions)
+        trans_A = np.linalg.norm(T_sens_j[:3, 3] - T_sens_i[:3, 3]) * 1000.0  # mm
         rot_A = np.degrees(rot_angle(A[:3, :3]))     # deg
-        trans_B = np.linalg.norm(B[:3, 3]) * 1000.0  # mm
+        trans_B = np.linalg.norm(T_cam_j[:3, 3] - T_cam_i[:3, 3]) * 1000.0  # mm
         rot_B = np.degrees(rot_angle(B[:3, :3]))     # deg
 
         movements_A.append((trans_A, rot_A))
