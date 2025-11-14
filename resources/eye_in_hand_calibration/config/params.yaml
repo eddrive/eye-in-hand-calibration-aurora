@@ -26,7 +26,7 @@ hand_eye_calibrator:
     # COLLECTION PARAMETERS
     # ===========================================
     
-    max_samples: 500                   # Total samples to collect
+    max_samples: 100                   # Total samples to collect
     final_poses: 20                    # Best samples used for calibration (diversity + quality)
     max_error_threshold: 0.05          # Max acceptable prediction error (m) - surgical precision
     max_pose_age_ms: 10                # Max time diff for Aurora-image sync (ms)
