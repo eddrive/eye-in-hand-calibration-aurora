@@ -29,6 +29,13 @@ struct CalibrationConfig {
     int max_samples;           // Total samples to collect
     int final_poses;           // Best samples to use for calibration
     double max_error_threshold;
+
+    // ========== Interactive Collection Mode ==========
+    int num_positions;                  // Number of camera positions (n)
+    int samples_per_position;           // Samples per position (m)
+    double detection_rate_hz;           // Chessboard detection rate (Hz)
+    double chessboard_quality_threshold; // Min corner quality to start
+    double max_sensor_movement_mm;      // Max sensor movement std dev (mm)
     
     // ========== Synchronization ==========
     int max_pose_age_ms;       // Max time diff for Aurora sync
@@ -103,6 +110,13 @@ struct CalibrationConfig {
         config.max_samples = node->declare_parameter<int>("max_samples", 100);
         config.final_poses = node->declare_parameter<int>("final_poses", 20);
         config.max_error_threshold = node->declare_parameter<double>("max_error_threshold", 0.01);
+
+        // Interactive Collection Mode
+        config.num_positions = node->declare_parameter<int>("num_positions", 5);
+        config.samples_per_position = node->declare_parameter<int>("samples_per_position", 10);
+        config.detection_rate_hz = node->declare_parameter<double>("detection_rate_hz", 1.0);
+        config.chessboard_quality_threshold = node->declare_parameter<double>("chessboard_quality_threshold", 0.7);
+        config.max_sensor_movement_mm = node->declare_parameter<double>("max_sensor_movement_mm", 2.0);
         
         // Synchronization
         config.max_pose_age_ms = node->declare_parameter<int>("max_pose_age_ms", 50);

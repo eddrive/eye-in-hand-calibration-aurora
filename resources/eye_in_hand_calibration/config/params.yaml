@@ -23,10 +23,22 @@ hand_eye_calibrator:
     camera_calibration_file: "/root/calibration/camera_calibration_fisheye_1080p.yaml"
     
     # ===========================================
-    # COLLECTION PARAMETERS
+    # COLLECTION PARAMETERS (Interactive Mode)
     # ===========================================
-    
-    max_samples: 100                   # Total samples to collect
+
+    # Interactive collection mode parameters
+    num_positions: 5                   # Number of different camera positions (n)
+    samples_per_position: 10           # Samples to collect at each position (m)
+    detection_rate_hz: 10.0             # Rate for chessboard detection analysis (Hz)
+
+    # Chessboard quality validation
+    chessboard_quality_threshold: 0.5  # Min corner quality to start collection (0-1)
+
+    # Sensor movement validation (for discarding samples)
+    max_sensor_movement_mm: 2.0        # Max sensor std dev movement during collection (mm)
+
+    # Legacy parameters (kept for compatibility)
+    max_samples: 100                   # Total samples to collect (auto-calculated: num_positions * samples_per_position)
     final_poses: 20                    # Best samples used for calibration (diversity + quality)
     max_error_threshold: 0.05          # Max acceptable prediction error (m) - surgical precision
     max_pose_age_ms: 10                # Max time diff for Aurora-image sync (ms)

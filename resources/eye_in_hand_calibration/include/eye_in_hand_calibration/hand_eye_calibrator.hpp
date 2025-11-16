@@ -20,11 +20,32 @@
 namespace eye_in_hand_calibration {
 
 /**
+ * @brief Calibration state machine states
+ */
+enum class CalibrationState {
+    IDLE,           // Waiting for user command
+    DETECTING,      // Analyzing frames for chessboard detection
+    COLLECTING,     // Actively collecting samples at current position
+    PAUSED,         // Paused after collecting m samples
+    CALIBRATING     // Final calibration in progress
+};
+
+/**
  * @brief Image processing task for worker threads
  */
 struct ImageProcessingTask {
     sensor_msgs::msg::CompressedImage::SharedPtr image_msg;
     rclcpp::Time image_timestamp;
+};
+
+/**
+ * @brief Position bucket storing samples from one camera position
+ */
+struct PositionBucket {
+    std::vector<CalibrationSample> samples;
+    int position_id;
+
+    PositionBucket() : position_id(-1) {}
 };
 
 /**
@@ -46,11 +67,21 @@ private:
     // ========== Callbacks ==========
     void imageCallback(const sensor_msgs::msg::CompressedImage::SharedPtr msg);
     void auroraCallback(const aurora_ndi_ros2_driver::msg::AuroraData::SharedPtr msg);
-    
+
     // ========== Processing ==========
     void processingThreadFunction();
     void processImage(const ImageProcessingTask& task);
-    
+
+    // ========== Interactive Mode Functions ==========
+    void keyboardListenerThread();
+    void handleUserCommand(char cmd);
+    void startCollecting();
+    void pauseCollecting();
+    void processDetection(const ImageProcessingTask& task);
+    void processCollection(const ImageProcessingTask& task);
+    void validateAndSavePosition();
+    void printPositionRecap(const PositionBucket& bucket, bool valid);
+
     // ========== Calibration Pipeline ==========
     void selectBestSamplesAndCalibrate();
     
@@ -84,6 +115,25 @@ private:
     std::atomic<int> images_dropped_;
 
     Eigen::Matrix4d final_transformation_;
+
+    // ========== Interactive Mode State ==========
+    CalibrationState current_state_;
+    std::mutex state_mutex_;
+
+    std::thread keyboard_thread_;
+
+    // Position buckets for organizing samples
+    std::vector<PositionBucket> position_buckets_;
+    int current_position_index_;
+    PositionBucket current_bucket_;
+    std::mutex bucket_mutex_;
+
+    // Detection throttling
+    rclcpp::Time last_detection_time_;
+
+    // Chessboard detection status
+    bool chessboard_detected_;
+    double last_corner_quality_;
 };
 
 } // namespace eye_in_hand_calibration
