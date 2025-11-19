@@ -70,18 +70,11 @@ public:
     }
     
     /**
-     * @brief Calculate corner detection quality metric
-     * @param corners Detected corners
-     * @return Quality score [0-1], where 1 is perfect
-     */
-    double calculateCornerQuality(const std::vector<cv::Point2f>& corners) const;
-    
-    /**
      * @brief Draw detected corners on image for visualization
      * @param image Input/output image
      * @param corners Detected corners
      */
-    void drawCorners(cv::Mat& image, 
+    void drawCorners(cv::Mat& image,
                      const std::vector<cv::Point2f>& corners) const;
     
 private:
@@ -106,27 +99,19 @@ private:
                        std::vector<cv::Point2f>& corners);
     
     /**
-     * @brief Validate corner distribution quality
+     * @brief Validate corner count
      * @param corners Detected corners
-     * @return true if corners meet quality criteria
+     * @return true if correct number of corners detected
      */
     bool validateCornerQuality(const std::vector<cv::Point2f>& corners) const;
-    
-    /**
-     * @brief Calculate variance of distances between consecutive corners
-     * @param corners Detected corners
-     * @return Normalized variance (coefficient of variation)
-     */
-    double calculateDistanceVariance(const std::vector<cv::Point2f>& corners) const;
-    
+
     // Configuration
     cv::Size pattern_size_;              // Chessboard dimensions (cols, rows)
     double square_size_;                 // Physical square size in meters
     std::vector<cv::Point3f> object_points_;  // 3D pattern points
-    
+
     // Detection parameters
     int flags_;                          // OpenCV findChessboardCorners flags
-    double max_variance_threshold_;      // Max acceptable corner variance
     
     // Subpixel refinement parameters
     cv::Size subpix_window_;            // Search window size

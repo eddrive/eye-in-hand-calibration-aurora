@@ -80,13 +80,13 @@ fi
 echo "=========================================="
 echo "Starting endoscope camera driver..."
 echo "=========================================="
-# ros2 run usb_cam usb_cam_node_exe --ros-args \
-#     --params-file "${PARAMS_FILE_1080}" \
-#     -r image_raw:="/endoscope/image_raw" \
-#     -r camera_info:="/endoscope/camera_info" \
-#     -r image_raw/compressed:="/endoscope/image_raw/compressed" \
-#     > /dev/null 2>&1 &
-ros2 bag play bags/chess_11x9_3mm/chess_11x9_3mm_0.db3 --clock
+ros2 run usb_cam usb_cam_node_exe --ros-args \
+    --params-file "${PARAMS_FILE_1080}" \
+    -r image_raw:="/endoscope/image_raw" \
+    -r camera_info:="/endoscope/camera_info" \
+    -r image_raw/compressed:="/endoscope/image_raw/compressed" \
+    > /dev/null 2>&1 &
+#ros2 bag play bags/chess_11x9_3mm/chess_11x9_3mm_0.db3 --clock
 
 CAMERA_PID=$!
 echo "Camera node started (PID: $CAMERA_PID)"

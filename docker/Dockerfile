@@ -137,7 +137,7 @@ COPY ../resources/eye_in_hand_calibration $COLCON_WS/src/eye_in_hand_calibration
 COPY ../resources/calibration /root/calibration
 
 # Copy test bags (optional)
-COPY ../data/rosbags $COLCON_WS/bags
+#COPY ../data/rosbags $COLCON_WS/bags
 
 # Install package dependencies
 RUN rosdep install --ignore-src --from-paths src -y --rosdistro humble || true

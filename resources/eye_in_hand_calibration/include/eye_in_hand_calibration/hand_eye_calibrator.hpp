@@ -133,7 +133,6 @@ private:
 
     // Chessboard detection status
     bool chessboard_detected_;
-    double last_corner_quality_;
 };
 
 } // namespace eye_in_hand_calibration

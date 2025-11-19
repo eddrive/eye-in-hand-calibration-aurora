@@ -24,7 +24,6 @@ HandEyeCalibrator::HandEyeCalibrator() : Node("hand_eye_calibrator") {
     current_state_ = CalibrationState::IDLE;
     current_position_index_ = 0;
     chessboard_detected_ = false;
-    last_corner_quality_ = 0.0;
     last_detection_time_ = this->now();
     config_ = CalibrationConfig::loadFromNode(this);
     if (config_.use_measured_object_points) {
@@ -95,7 +94,7 @@ HandEyeCalibrator::HandEyeCalibrator() : Node("hand_eye_calibrator") {
     RCLCPP_INFO(this->get_logger(), "Positions to collect: %d", config_.num_positions);
     RCLCPP_INFO(this->get_logger(), "Samples per position: %d", config_.samples_per_position);
     RCLCPP_INFO(this->get_logger(), "Detection rate: %.1f Hz", config_.detection_rate_hz);
-    RCLCPP_INFO(this->get_logger(), "Quality threshold: %.2f", config_.chessboard_quality_threshold);
+    RCLCPP_INFO(this->get_logger(), "Max reprojection error (detection): %.2fpx", config_.max_reprojection_error_detection);
     RCLCPP_INFO(this->get_logger(), "Processing threads: %d", num_processing_threads_);
     RCLCPP_INFO(this->get_logger(), "=================================================");
     RCLCPP_INFO(this->get_logger(), "Commands: [s] Start collecting | [p] Pause | [x] Stop");
@@ -223,7 +222,17 @@ void HandEyeCalibrator::imageCallback(
 }
 void HandEyeCalibrator::auroraCallback(
     const aurora_ndi_ros2_driver::msg::AuroraData::SharedPtr msg) {
-    aurora_sync_->addMeasurement(msg);
+    // Only buffer Aurora data during COLLECTING state to improve performance
+    CalibrationState state;
+    {
+        std::lock_guard<std::mutex> lock(state_mutex_);
+        state = current_state_;
+    }
+
+    if (state == CalibrationState::COLLECTING) {
+        aurora_sync_->addMeasurement(msg);
+    }
+
     // Log periodically
     static std::atomic<int> aurora_count{0};
     int count = ++aurora_count;
@@ -298,35 +307,42 @@ void HandEyeCalibrator::processDetection(const ImageProcessingTask& task) {
             return;
         }
 
-        // Chessboard detected - calculate quality
-        double quality = detector_->calculateCornerQuality(corners);
-        last_corner_quality_ = quality;
-
-        // Print quality with comparison to threshold
-        if (quality >= config_.chessboard_quality_threshold) {
-            RCLCPP_INFO(this->get_logger(),
-                "[DETECTING] Frame analyzed - Chessboard DETECTED | Quality: %.3f [ABOVE threshold %.3f] ✓",
-                quality, config_.chessboard_quality_threshold);
-        } else {
-            RCLCPP_INFO(this->get_logger(),
-                "[DETECTING] Frame analyzed - Chessboard DETECTED | Quality: %.3f [BELOW threshold %.3f]",
-                quality, config_.chessboard_quality_threshold);
+        // Chessboard detected - validate with reprojection error
+        cv::Mat rvec, tvec;
+        if (!pose_estimator_->estimatePose(corners, detector_->getObjectPoints(), rvec, tvec)) {
+            RCLCPP_INFO(this->get_logger(), "[DETECTING] Frame analyzed - Chessboard DETECTED but pose estimation failed");
+            if (chessboard_detected_) {
+                chessboard_detected_ = false;
+            }
+            return;
         }
 
-        if (quality >= config_.chessboard_quality_threshold) {
+        double reproj_error = pose_estimator_->computeReprojectionError(
+            corners, detector_->getObjectPoints(), rvec, tvec);
+
+        // Filter by reprojection error
+        if (reproj_error <= config_.max_reprojection_error_detection) {
+            RCLCPP_INFO(this->get_logger(),
+                "[DETECTING] Frame analyzed - Chessboard DETECTED | Reproj error: %.3fpx [GOOD] ✓",
+                reproj_error);
+
             if (!chessboard_detected_) {
                 chessboard_detected_ = true;
                 RCLCPP_INFO(this->get_logger(),
-                    "\n*** Chessboard quality sufficient! Quality: %.3f >= %.3f ***",
-                    quality, config_.chessboard_quality_threshold);
+                    "\n*** Chessboard detected with good quality! Reprojection error: %.3fpx <= %.3fpx ***",
+                    reproj_error, config_.max_reprojection_error_detection);
                 RCLCPP_INFO(this->get_logger(), "Press 's' to start collecting samples at this position\n");
             }
         } else {
+            RCLCPP_INFO(this->get_logger(),
+                "[DETECTING] Frame analyzed - Chessboard DETECTED | Reproj error: %.3fpx [TOO HIGH, max: %.3fpx]",
+                reproj_error, config_.max_reprojection_error_detection);
+
             if (chessboard_detected_) {
                 chessboard_detected_ = false;
                 RCLCPP_WARN(this->get_logger(),
-                    "Chessboard quality dropped below threshold: %.3f < %.3f",
-                    quality, config_.chessboard_quality_threshold);
+                    "Chessboard quality dropped: reprojection error %.3fpx > %.3fpx",
+                    reproj_error, config_.max_reprojection_error_detection);
             }
         }
 
@@ -348,7 +364,6 @@ void HandEyeCalibrator::processCollection(const ImageProcessingTask& task) {
         }
 
         successful_detections_++;
-        double quality = detector_->calculateCornerQuality(corners);
 
         cv::Mat rvec, tvec;
         if (!pose_estimator_->estimatePose(corners, detector_->getObjectPoints(),
@@ -387,13 +402,20 @@ void HandEyeCalibrator::processCollection(const ImageProcessingTask& task) {
             current_bucket_.samples.push_back(sample);
 
             RCLCPP_INFO(this->get_logger(),
-                "Sample %zu/%d collected (reproj: %.3fpx, quality: %.3f)",
+                "Sample %zu/%d collected (reproj: %.3fpx)",
                 current_bucket_.samples.size(), config_.samples_per_position,
-                reproj_error, quality);
+                reproj_error);
 
             // Check if we have enough samples for this position
             if (static_cast<int>(current_bucket_.samples.size()) >= config_.samples_per_position) {
                 RCLCPP_INFO(this->get_logger(), "\nPosition complete! Validating...");
+
+                // Change state to IDLE to stop processing new images during validation
+                {
+                    std::lock_guard<std::mutex> state_lock(state_mutex_);
+                    current_state_ = CalibrationState::IDLE;
+                }
+
                 validateAndSavePosition();
             }
         }
@@ -616,8 +638,7 @@ void HandEyeCalibrator::handleUserCommand(char cmd) {
             } else {
                 if (current_state_ == CalibrationState::DETECTING) {
                     RCLCPP_WARN(this->get_logger(),
-                        "Cannot start: chessboard quality insufficient (current: %.3f, required: %.3f)",
-                        last_corner_quality_, config_.chessboard_quality_threshold);
+                        "Cannot start: chessboard not detected or reprojection error too high");
                 } else {
                     RCLCPP_WARN(this->get_logger(), "Cannot start: invalid state");
                 }
@@ -648,10 +669,14 @@ void HandEyeCalibrator::startCollecting() {
     current_bucket_.samples.clear();
     current_bucket_.position_id = current_position_index_;
 
+    // Clear Aurora buffer to start fresh for this position
+    aurora_sync_->clearBuffer();
+
     RCLCPP_INFO(this->get_logger(), "\n==> STATE: COLLECTING");
     RCLCPP_INFO(this->get_logger(), "Position %d/%d - Collecting %d samples...",
                 current_position_index_ + 1, config_.num_positions,
                 config_.samples_per_position);
+    RCLCPP_INFO(this->get_logger(), "Aurora buffer cleared - collecting fresh sensor data");
 }
 
 void HandEyeCalibrator::pauseCollecting() {
@@ -661,18 +686,40 @@ void HandEyeCalibrator::pauseCollecting() {
 }
 
 void HandEyeCalibrator::validateAndSavePosition() {
-    std::lock_guard<std::mutex> lock(bucket_mutex_);
+    // NOTE: This function is called with bucket_mutex_ already locked by the caller
+    RCLCPP_INFO(this->get_logger(), "[DEBUG] Entering validateAndSavePosition()");
+    RCLCPP_INFO(this->get_logger(), "[DEBUG] Sample count: %zu", current_bucket_.samples.size());
 
     if (current_bucket_.samples.empty()) {
-        RCLCPP_WARN(this->get_logger(), "No samples collected for this position");
+        RCLCPP_ERROR(this->get_logger(),
+            "\n========================================");
+        RCLCPP_ERROR(this->get_logger(),
+            "❌ NO SAMPLES COLLECTED FOR THIS POSITION!");
+        RCLCPP_ERROR(this->get_logger(),
+            "========================================");
+        RCLCPP_ERROR(this->get_logger(),
+            "Possible causes:");
+        RCLCPP_ERROR(this->get_logger(),
+            "  1. Aurora sensor NOT VISIBLE - check sensor position and field generator");
+        RCLCPP_ERROR(this->get_logger(),
+            "  2. Time synchronization issues between camera and Aurora");
+        RCLCPP_ERROR(this->get_logger(),
+            "  3. Chessboard detection failures");
+        RCLCPP_ERROR(this->get_logger(),
+            "========================================\n");
+        RCLCPP_INFO(this->get_logger(), "Returning to DETECTING state...");
+        current_state_ = CalibrationState::DETECTING;
+        chessboard_detected_ = false;
         return;
     }
 
     // Calculate statistics
+    RCLCPP_INFO(this->get_logger(), "[DEBUG] Starting statistics calculation");
     std::vector<Eigen::Vector3d> sensor_positions;
     std::vector<double> camera_sensor_distances;
     double total_reproj_error = 0.0;
 
+    RCLCPP_INFO(this->get_logger(), "[DEBUG] Starting loop over samples");
     for (const auto& sample : current_bucket_.samples) {
         Eigen::Vector3d sensor_pos = sample.sensor_pose.block<3,1>(0,3);
         Eigen::Vector3d camera_pos = sample.camera_pose.block<3,1>(0,3);
@@ -681,8 +728,10 @@ void HandEyeCalibrator::validateAndSavePosition() {
         camera_sensor_distances.push_back((camera_pos - sensor_pos).norm());
         total_reproj_error += sample.reprojection_error;
     }
+    RCLCPP_INFO(this->get_logger(), "[DEBUG] Finished loop over samples");
 
     // Compute sensor movement (std dev of positions)
+    RCLCPP_INFO(this->get_logger(), "[DEBUG] Computing sensor movement statistics");
     Eigen::Vector3d mean_sensor_pos = Eigen::Vector3d::Zero();
     for (const auto& pos : sensor_positions) {
         mean_sensor_pos += pos;
@@ -694,13 +743,19 @@ void HandEyeCalibrator::validateAndSavePosition() {
         sensor_movement_variance += (pos - mean_sensor_pos).squaredNorm();
     }
     double sensor_movement_std = std::sqrt(sensor_movement_variance / sensor_positions.size());
+    RCLCPP_INFO(this->get_logger(), "[DEBUG] Sensor movement std: %.3f mm", sensor_movement_std * 1000.0);
 
     // Validate sensor movement
     bool valid = (sensor_movement_std * 1000.0) <= config_.max_sensor_movement_mm;
+    RCLCPP_INFO(this->get_logger(), "[DEBUG] Position valid: %s", valid ? "true" : "false");
 
+    RCLCPP_INFO(this->get_logger(), "[DEBUG] Calling printPositionRecap");
     printPositionRecap(current_bucket_, valid);
+    RCLCPP_INFO(this->get_logger(), "[DEBUG] Returned from printPositionRecap");
 
+    RCLCPP_INFO(this->get_logger(), "[DEBUG] Checking validity and updating state");
     if (valid) {
+        RCLCPP_INFO(this->get_logger(), "[DEBUG] Position is valid, saving to buckets");
         position_buckets_.push_back(current_bucket_);
         current_position_index_++;
 
@@ -720,10 +775,17 @@ void HandEyeCalibrator::validateAndSavePosition() {
                 selectBestSamplesAndCalibrate();
             }
         } else {
-            // Go to paused state, waiting for user to move camera
-            current_state_ = CalibrationState::PAUSED;
+            // Transition back to DETECTING for next position
+            current_state_ = CalibrationState::DETECTING;
+            chessboard_detected_ = false;
+
+            RCLCPP_INFO(this->get_logger(), "\n==> STATE: DETECTING");
+            RCLCPP_INFO(this->get_logger(), "Move camera to position %d/%d and wait for chessboard detection...",
+                        current_position_index_ + 1, config_.num_positions);
+            RCLCPP_INFO(this->get_logger(), "Press 's' when ready to collect samples\n");
         }
     } else {
+        RCLCPP_INFO(this->get_logger(), "[DEBUG] Position is invalid, discarding samples");
         RCLCPP_ERROR(this->get_logger(), "Samples DISCARDED due to excessive sensor movement!");
         RCLCPP_INFO(this->get_logger(), "Returning to DETECTING state...");
         current_state_ = CalibrationState::DETECTING;
@@ -731,7 +793,9 @@ void HandEyeCalibrator::validateAndSavePosition() {
     }
 
     // Clear current bucket
+    RCLCPP_INFO(this->get_logger(), "[DEBUG] Clearing current bucket");
     current_bucket_.samples.clear();
+    RCLCPP_INFO(this->get_logger(), "[DEBUG] Exiting validateAndSavePosition()");
 }
 
 void HandEyeCalibrator::printPositionRecap(const PositionBucket& bucket, bool valid) {

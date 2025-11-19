@@ -12,7 +12,6 @@ ChessboardDetector::ChessboardDetector(const cv::Size& pattern_size,
                                        rclcpp::Logger logger)
     : pattern_size_(pattern_size),
       square_size_(square_size),
-      max_variance_threshold_(0.20),
       using_measured_points_(false),
       logger_(logger)
 {
@@ -33,7 +32,6 @@ ChessboardDetector::ChessboardDetector(const cv::Size& pattern_size,
                                        rclcpp::Logger logger)
     : pattern_size_(pattern_size),
       square_size_(0.0),  // Not used with measured points
-      max_variance_threshold_(0.20),
       using_measured_points_(true),
       logger_(logger)
 {
@@ -180,70 +178,23 @@ bool ChessboardDetector::refineCorners(const cv::Mat& gray,
 }
 bool ChessboardDetector::validateCornerQuality(
     const std::vector<cv::Point2f>& corners) const {
+    // Only validate that we have the correct number of corners
+    // Quality filtering is done via reprojection error, not corner variance
     if (corners.size() != static_cast<size_t>(pattern_size_.width * pattern_size_.height)) {
-        return false;
-    }
-    double variance = calculateDistanceVariance(corners);
-    if (variance > max_variance_threshold_) {
-        RCLCPP_DEBUG(logger_, "Corner distance variance too high: %.3f (threshold: %.3f)",
-                    variance, max_variance_threshold_);
         return false;
     }
     return true;
 }
-double ChessboardDetector::calculateDistanceVariance(
-    const std::vector<cv::Point2f>& corners) const {
-    std::vector<double> distances;
-    distances.reserve(pattern_size_.width * pattern_size_.height);
-    for (int row = 0; row < pattern_size_.height; ++row) {
-        for (int col = 0; col < pattern_size_.width - 1; ++col) {
-            int idx = row * pattern_size_.width + col;
-            cv::Point2f diff = corners[idx + 1] - corners[idx];
-            distances.push_back(cv::norm(diff));
-        }
-    }
-    for (int row = 0; row < pattern_size_.height - 1; ++row) {
-        for (int col = 0; col < pattern_size_.width; ++col) {
-            int idx = row * pattern_size_.width + col;
-            int next_idx = (row + 1) * pattern_size_.width + col;
-            cv::Point2f diff = corners[next_idx] - corners[idx];
-            distances.push_back(cv::norm(diff));
-        }
-    }
-    if (distances.empty()) {
-        return 1.0;  // Maximum variance
-    }
-    double mean = std::accumulate(distances.begin(), distances.end(), 0.0) / distances.size();
-    if (mean < 1e-6) {
-        return 1.0;  // Avoid division by zero
-    }
-    double variance_sum = 0.0;
-    for (double dist : distances) {
-        double diff = dist - mean;
-        variance_sum += diff * diff;
-    }
-    double std_dev = std::sqrt(variance_sum / distances.size());
-    return std_dev / mean;
-}
-double ChessboardDetector::calculateCornerQuality(
-    const std::vector<cv::Point2f>& corners) const {
-    if (corners.size() != static_cast<size_t>(pattern_size_.width * pattern_size_.height)) {
-        return 0.0;
-    }
-    double variance = calculateDistanceVariance(corners);
-    double quality = std::max(0.0, 1.0 - variance / max_variance_threshold_);
-    return quality;
-}
-void ChessboardDetector::drawCorners(cv::Mat& image, 
+
+void ChessboardDetector::drawCorners(cv::Mat& image,
                                      const std::vector<cv::Point2f>& corners) const {
     if (image.empty() || corners.empty()) {
         return;
     }
     cv::drawChessboardCorners(image, pattern_size_, corners, true);
     if (corners.size() == static_cast<size_t>(pattern_size_.width * pattern_size_.height)) {
-        double quality = calculateCornerQuality(corners);
-        std::string text = cv::format("Corners: %zu, Quality: %.2f", corners.size(), quality);
-        cv::putText(image, text, 
+        std::string text = cv::format("Corners detected: %zu", corners.size());
+        cv::putText(image, text,
                    cv::Point(10, 30),
                    cv::FONT_HERSHEY_SIMPLEX,
                    0.7,

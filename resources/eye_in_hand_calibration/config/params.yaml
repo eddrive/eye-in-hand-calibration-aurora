@@ -29,10 +29,10 @@ hand_eye_calibrator:
     # Interactive collection mode parameters
     num_positions: 5                   # Number of different camera positions (n)
     samples_per_position: 10           # Samples to collect at each position (m)
-    detection_rate_hz: 10.0             # Rate for chessboard detection analysis (Hz)
+    detection_rate_hz: 20.0             # Rate for chessboard detection analysis (Hz)
 
-    # Chessboard quality validation
-    chessboard_quality_threshold: 0.5  # Min corner quality to start collection (0-1)
+    # Detection quality validation (reprojection error-based)
+    max_reprojection_error_detection: 1.6  # Max reprojection error for detection phase (px)
 
     # Sensor movement validation (for discarding samples)
     max_sensor_movement_mm: 2.0        # Max sensor std dev movement during collection (mm)
@@ -82,7 +82,7 @@ hand_eye_calibrator:
     # 3. Movement coherence (ALL samples vs REFERENCE with lowest reproj error)
     # 4. Spatial diversity (optional, if use_spatial_diversity=true)
     # ===========================================
-    max_reproj_error_filter: 0.8       # Max reprojection error (px)
+    max_reproj_error_filter: 1.5       # Max reprojection error (px)
     min_sensor_camera_distance: 0.008  # Min sensor-camera distance (m) - 8.0mm
     max_sensor_camera_distance: 0.015  # Max sensor-camera distance (m) - 15.0mm
     max_movement_ratio: 1.2            # Max ratio between sensor/camera movement

@@ -34,8 +34,8 @@ def generate_launch_description():
         ],
         output='screen',
         emulate_tty=True,
-        respawn=True,
-        respawn_delay=2.0
+        prefix='bash -c "exec </dev/tty; $0 $@"',
+        respawn=False
     )
 
     return LaunchDescription([

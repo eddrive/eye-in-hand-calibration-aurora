@@ -34,7 +34,7 @@ struct CalibrationConfig {
     int num_positions;                  // Number of camera positions (n)
     int samples_per_position;           // Samples per position (m)
     double detection_rate_hz;           // Chessboard detection rate (Hz)
-    double chessboard_quality_threshold; // Min corner quality to start
+    double max_reprojection_error_detection; // Max reproj error for detection (px)
     double max_sensor_movement_mm;      // Max sensor movement std dev (mm)
     
     // ========== Synchronization ==========
@@ -115,7 +115,7 @@ struct CalibrationConfig {
         config.num_positions = node->declare_parameter<int>("num_positions", 5);
         config.samples_per_position = node->declare_parameter<int>("samples_per_position", 10);
         config.detection_rate_hz = node->declare_parameter<double>("detection_rate_hz", 1.0);
-        config.chessboard_quality_threshold = node->declare_parameter<double>("chessboard_quality_threshold", 0.7);
+        config.max_reprojection_error_detection = node->declare_parameter<double>("max_reprojection_error_detection", 1.6);
         config.max_sensor_movement_mm = node->declare_parameter<double>("max_sensor_movement_mm", 2.0);
         
         // Synchronization
