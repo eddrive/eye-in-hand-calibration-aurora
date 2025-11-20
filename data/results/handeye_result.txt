@@ -5,47 +5,43 @@ HAND-EYE CALIBRATION RESULTS
 Configuration:
   Input file:              data/results/collected_samples.yaml
   Chessboard file:         hardware/chessboards/measured_points/chess_11x9_3mm_inter.yaml
-  Method:                  tsai
-  Max reproj error:        0.7 px
+  Method:                  horaud
+  Max reproj error:        0.6 px
   Sensor-camera distance:  10.0 - 16.0 mm
   Max movement ratio:      1.20
   Max rotation diff:       15.0 deg
-  Spatial diversity:       ENABLED
-    Min trans distance:    14.0 mm
-    Min rot distance:      10.0 deg
-    Target samples:        25
-  Samples used:            25
-  Sample indices:          [3, 70, 37, 36, 32, 29, 31, 5, 14, 4, 13, 28, 61, 24, 76, 10, 60, 11, 12, 71, 6, 72, 7, 52, 66]
-  Avg camera-chessboard:   104.99 mm
+  Samples used:            38
+  Sample indices:          [3, 4, 5, 6, 7, 10, 11, 12, 13, 14, 17, 18, 24, 28, 29, 30, 31, 32, 36, 37, 42, 43, 49, 50, 52, 60, 61, 64, 65, 66, 67, 68, 70, 71, 72, 73, 74, 76]
+  Avg camera-chessboard:   104.05 mm
 
 Transformation X (sensor -> camera):
-  Translation norm:  12.292 mm
-  Rotation angle:    99.1259 deg
+  Translation norm:  12.449 mm
+  Rotation angle:    99.3002 deg
 
 Matrix X:
-      0.015796    -0.026191    -0.999532    -0.006647
-     -0.736669     0.675616    -0.029345     0.000560
-      0.676069     0.736788    -0.008622    -0.010325
+      0.006170    -0.026858    -0.999620    -0.007037
+     -0.727319     0.685916    -0.022919    -0.000084
+      0.686272     0.727184    -0.015302    -0.010270
       0.000000     0.000000     0.000000     1.000000
 
 Rotation (Quaternion [x, y, z, w]):
-  [0.295297, -0.645841, -0.273846, 0.648612]
+  [-0.289636, 0.650970, 0.270468, -0.647454]
 
 ======================================================================
 Calibration Errors:
 ======================================================================
-  Number of samples:   25
-  Rotation min:        0.4249 deg
-  Rotation median:     2.4294 deg
-  Rotation max:        5.9501 deg
-  Rotation mean:       2.6424 deg
-  Rotation std:        1.2152 deg
-  Rotation RMS:        2.8983 deg
-  Translation min:     1.267 mm
-  Translation median:  3.005 mm
-  Translation max:     7.884 mm
-  Translation mean:    3.211 mm
-  Translation std:     1.370 mm
-  Translation RMS:     3.481 mm
+  Number of samples:   38
+  Rotation min:        0.6584 deg
+  Rotation median:     2.3069 deg
+  Rotation max:        5.5819 deg
+  Rotation mean:       2.5565 deg
+  Rotation std:        1.2022 deg
+  Rotation RMS:        2.8183 deg
+  Translation min:     0.948 mm
+  Translation median:  2.896 mm
+  Translation max:     8.222 mm
+  Translation mean:    3.086 mm
+  Translation std:     1.344 mm
+  Translation RMS:     3.359 mm
 
 ======================================================================

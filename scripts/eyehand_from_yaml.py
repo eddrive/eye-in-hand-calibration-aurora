@@ -19,22 +19,22 @@ DATA_RESULTS_DIR = REPO_ROOT / "data" / "results"
 CHESSBOARD_DIR = REPO_ROOT / "hardware" / "chessboards" / "measured_points"
 
 CONFIG = {
-    "MAX_REPROJ_ERROR_PX": 0.7,
+    "MAX_REPROJ_ERROR_PX": 0.6,
     "MIN_SENSOR_CAMERA_DIST_MM": 10.0,
     "MAX_SENSOR_CAMERA_DIST_MM": 16.0,
     "MAX_MOVEMENT_RATIO": 1.2,
     "MAX_ROTATION_DIFF_DEG": 15.0,
-    "USE_SPATIAL_DIVERSITY": True,
+    "USE_SPATIAL_DIVERSITY": False,
     "MIN_TRANS_DIST_MM": 14.0,
     "MIN_ROT_DIST_DEG": 10.0,
-    "TARGET_DIVERSE_SAMPLES": 25,
-    "METHOD": "tsai",
+    "TARGET_DIVERSE_SAMPLES": 40,
+    "METHOD": "horaud",
     "MIN_SAMPLES": 10,
     "USE_ITERATIVE_REFINEMENT": False,
     "TARGET_PAIRS": 20,
     "USE_NONLINEAR_REFINEMENT": True,
     "REFINEMENT_MAX_ITERATIONS": 100,
-    "ROTATION_WEIGHT": 10.0,
+    "ROTATION_WEIGHT": 1.0,
 }
 
 def select_file_interactive(directory: Path, pattern: str, file_type: str) -> Path:
