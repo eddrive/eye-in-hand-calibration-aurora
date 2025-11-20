@@ -45,6 +45,9 @@ HandEyeCalibrator::HandEyeCalibrator() : Node("hand_eye_calibrator") {
         config_.min_movement_threshold,
         config_.min_rotation_threshold,
         10.0,  // 10.0px max reprojection error
+        config_.stillness_buffer_size,
+        config_.max_stillness_translation,
+        config_.max_stillness_rotation,
         this->get_logger()
     );
     solver_ = std::make_unique<CalibrationSolver>(
@@ -275,17 +278,38 @@ void HandEyeCalibrator::processImage(const ImageProcessingTask& task) {
         // RCLCPP_ERROR(this->get_logger(),
         //     "🔵 DEBUG SAVE: Camera pos from matrix: [%.4f, %.4f, %.4f]",
         //     T_aurora_to_camera(0,3), T_aurora_to_camera(1,3), T_aurora_to_camera(2,3));
+
+        // Filter by reprojection error before saving
+        if (reproj_error > config_.max_reproj_error_filter) {
+            RCLCPP_WARN(this->get_logger(),
+                "❌ Sample discarded: reprojection error %.3fpx > %.3fpx threshold",
+                reproj_error, config_.max_reproj_error_filter);
+            return;
+        }
+
+        // Check camera stillness if enabled (always update buffer, even if we don't save)
+        if (config_.enable_stillness_check) {
+            bool is_camera_still = sample_manager_->isCameraStill(T_aurora_to_camera);
+
+            if (!is_camera_still) {
+                RCLCPP_DEBUG(this->get_logger(),
+                    "⏸️  Camera is moving, waiting for stillness...");
+                return;
+            }
+        }
+
+        // Check if sample is diverse enough from last saved sample
         if (sample_manager_->shouldSaveSample(T_aurora_to_sensor, T_aurora_to_camera)) {
             int sample_id = sample_manager_->addSample(
                 T_aurora_to_sensor,     // Sensor pose (correct)
                 T_aurora_to_camera,     // Camera pose (CORRECTED - inverted!)
-                reproj_error, 
+                reproj_error,
                 distance_to_target
             );
             samples_saved_++;
             RCLCPP_INFO(this->get_logger(),
                 "✓ Sample %d saved (total: %zu, reproj: %.3fpx, dist S↔C: %.1fmm)",
-                sample_id, sample_manager_->getNumSamples(), 
+                sample_id, sample_manager_->getNumSamples(),
                 reproj_error, dist_sensor_camera * 1000.0);
         } else {
             RCLCPP_DEBUG(this->get_logger(),

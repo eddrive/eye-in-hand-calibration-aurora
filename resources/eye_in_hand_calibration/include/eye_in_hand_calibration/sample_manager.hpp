@@ -3,6 +3,7 @@
 
 #include <Eigen/Dense>
 #include <vector>
+#include <deque>
 #include <string>
 #include <mutex>
 #include <rclcpp/rclcpp.hpp>
@@ -41,11 +42,17 @@ public:
      * @param min_movement_threshold Minimum translation between samples (meters)
      * @param min_rotation_threshold Minimum rotation between samples (radians)
      * @param max_reprojection_error Maximum acceptable reprojection error (pixels)
+     * @param stillness_buffer_size Number of frames to check for stillness
+     * @param max_stillness_translation Max translation to be "still" (meters)
+     * @param max_stillness_rotation Max rotation to be "still" (radians)
      * @param logger ROS2 logger for diagnostics
      */
     SampleManager(double min_movement_threshold,
                   double min_rotation_threshold,
                   double max_reprojection_error,
+                  size_t stillness_buffer_size,
+                  double max_stillness_translation,
+                  double max_stillness_rotation,
                   rclcpp::Logger logger);
     
     /**
@@ -56,6 +63,14 @@ public:
      */
     bool shouldSaveSample(const Eigen::Matrix4d& sensor_pose,
                           const Eigen::Matrix4d& camera_pose);
+
+    /**
+     * @brief Update recent pose history and check if camera is still
+     * Must be different from last SAVED sample but stable over recent RECEIVED poses
+     * @param camera_pose Current camera pose
+     * @return true if camera has been still for the required number of frames
+     */
+    bool isCameraStill(const Eigen::Matrix4d& camera_pose);
     
     /**
      * @brief Add a calibration sample
@@ -194,14 +209,21 @@ private:
     std::vector<CalibrationSample> samples_;
     mutable std::mutex samples_mutex_;
     int next_sample_id_;
-    
+
     // Diversity filtering parameters
     double min_movement_threshold_;    // meters
     double min_rotation_threshold_;    // radians
-    
+
     // Quality filtering parameters
     double max_reprojection_error_;    // pixels
-    
+
+    // Camera stillness detection
+    std::deque<Eigen::Matrix4d> recent_camera_poses_;  // Circular buffer of recent poses
+    size_t stillness_buffer_size_;                     // How many poses to check
+    double max_stillness_translation_;                 // Max translation to be "still" (m)
+    double max_stillness_rotation_;                    // Max rotation to be "still" (rad)
+    mutable std::mutex stillness_mutex_;
+
     // Logger
     rclcpp::Logger logger_;
 };

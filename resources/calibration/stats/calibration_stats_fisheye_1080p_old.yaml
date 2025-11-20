@@ -1,0 +1,13 @@
+calibration_date: '2025-10-02T23:35:57.342907'
+calibration_type: fisheye
+chessboard_size:
+- 7
+- 5
+image_height: 1080
+image_width: 1920
+mse_similarity_threshold: 500.0
+num_images: 10
+resolution: 1080p
+rms_error: 0.9437486065802122
+square_size_mm: 10.0
+video_file: video_1080p_20250930_175124.mp4

@@ -11,16 +11,26 @@ namespace eye_in_hand_calibration {
 SampleManager::SampleManager(double min_movement_threshold,
                              double min_rotation_threshold,
                              double max_reprojection_error,
+                             size_t stillness_buffer_size,
+                             double max_stillness_translation,
+                             double max_stillness_rotation,
                              rclcpp::Logger logger)
     : next_sample_id_(0),
       min_movement_threshold_(min_movement_threshold),
       min_rotation_threshold_(min_rotation_threshold),
       max_reprojection_error_(max_reprojection_error),
+      stillness_buffer_size_(stillness_buffer_size),
+      max_stillness_translation_(max_stillness_translation),
+      max_stillness_rotation_(max_stillness_rotation),
       logger_(logger)
 {
-    RCLCPP_INFO(logger_, 
+    RCLCPP_INFO(logger_,
                 "SampleManager initialized: min_movement=%.3fm, min_rotation=%.3frad, max_error=%.1fpx",
                 min_movement_threshold_, min_rotation_threshold_, max_reprojection_error_);
+    RCLCPP_INFO(logger_,
+                "Stillness detection: buffer=%zu frames, max_trans=%.1fmm, max_rot=%.1f°",
+                stillness_buffer_size_, max_stillness_translation_ * 1000.0,
+                max_stillness_rotation_ * 180.0 / M_PI);
 }
 bool SampleManager::shouldSaveSample(const Eigen::Matrix4d& sensor_pose,
                                      [[maybe_unused]] const Eigen::Matrix4d& camera_pose) {
@@ -42,9 +52,51 @@ bool SampleManager::shouldSaveSample(const Eigen::Matrix4d& sensor_pose,
     }
     return is_diverse;
 }
+
+bool SampleManager::isCameraStill(const Eigen::Matrix4d& camera_pose) {
+    std::lock_guard<std::mutex> lock(stillness_mutex_);
+
+    // Add current pose to buffer
+    recent_camera_poses_.push_back(camera_pose);
+
+    // Keep buffer size limited
+    if (recent_camera_poses_.size() > stillness_buffer_size_) {
+        recent_camera_poses_.pop_front();
+    }
+
+    // Need enough poses to check stillness
+    if (recent_camera_poses_.size() < stillness_buffer_size_) {
+        RCLCPP_DEBUG(logger_,
+            "Not enough poses for stillness check: %zu/%zu",
+            recent_camera_poses_.size(), stillness_buffer_size_);
+        return false;
+    }
+
+    // Check if all recent poses are within stillness thresholds
+    for (size_t i = 1; i < recent_camera_poses_.size(); ++i) {
+        double trans_dist = calculateTranslationDistance(
+            recent_camera_poses_[i], recent_camera_poses_[0]);
+        double rot_angle = calculateRotationAngle(
+            recent_camera_poses_[i], recent_camera_poses_[0]);
+
+        if (trans_dist > max_stillness_translation_ ||
+            rot_angle > max_stillness_rotation_) {
+            RCLCPP_DEBUG(logger_,
+                "Camera moving: trans=%.3fmm, rot=%.2f° (limits: %.3fmm, %.2f°)",
+                trans_dist * 1000.0, rot_angle * 180.0 / M_PI,
+                max_stillness_translation_ * 1000.0,
+                max_stillness_rotation_ * 180.0 / M_PI);
+            return false;
+        }
+    }
+
+    RCLCPP_INFO(logger_, "✓ Camera is still (checked %zu frames)", stillness_buffer_size_);
+    return true;
+}
+
 int SampleManager::addSample(const Eigen::Matrix4d& sensor_pose,
                              const Eigen::Matrix4d& camera_pose,
-                             double reprojection_error, 
+                             double reprojection_error,
                              double distance_to_target) {
     std::lock_guard<std::mutex> lock(samples_mutex_);
     CalibrationSample sample;

@@ -38,6 +38,12 @@ struct CalibrationConfig {
     double min_movement_threshold;  // meters
     double min_rotation_threshold;  // radians
 
+    // ========== Camera Stillness Detection ==========
+    bool enable_stillness_check;        // enable/disable stillness verification
+    int stillness_buffer_size;          // number of frames to check
+    double max_stillness_translation;   // meters - max movement to be "still"
+    double max_stillness_rotation;      // radians - max rotation to be "still"
+
     // ========== Advanced Filtering (Python script logic) ==========
     double max_reproj_error_filter;     // pixels
     double min_sensor_camera_distance;  // meters - MINIMUM distance
@@ -111,6 +117,12 @@ struct CalibrationConfig {
         // Diversity
         config.min_movement_threshold = node->declare_parameter<double>("min_movement_threshold", 0.015);
         config.min_rotation_threshold = node->declare_parameter<double>("min_rotation_threshold", 0.15);
+
+        // Camera stillness detection
+        config.enable_stillness_check = node->declare_parameter<bool>("enable_stillness_check", true);
+        config.stillness_buffer_size = node->declare_parameter<int>("stillness_buffer_size", 5);
+        config.max_stillness_translation = node->declare_parameter<double>("max_stillness_translation", 0.002);
+        config.max_stillness_rotation = node->declare_parameter<double>("max_stillness_rotation", 0.017);
 
         // Advanced filtering - SAME AS PYTHON eyehand_from_yaml.py
         config.max_reproj_error_filter = node->declare_parameter<double>("max_reproj_error_filter", 0.8);
