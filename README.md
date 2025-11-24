@@ -7,14 +7,14 @@ Solves the **AX=XB** problem where X is the sensor→camera transformation.
 ## Quick Start
 
 ```bash
-# Build
-cd docker && docker build -t eye_in_hand_calibration:latest .
+# Build (from project root)
+docker build -f docker/Dockerfile -t eye_in_hand_calibration:latest .
 
 # Start
-docker-compose up
+docker-compose -f docker/docker-compose.yml up
 docker exec -it eye_in_hand_calib bash
 
-# Calibration
+# Calibration (inside container)
 ros2 launch eye_in_hand_calibration eye_in_hand_calibration.launch.py
 ```
 

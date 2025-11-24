@@ -2,23 +2,25 @@
 
 Containerized build and deployment for the eye-in-hand calibration system.
 
+> **Note**: All commands must be run from the **project root directory** (not from `docker/`).
+
 ## Quick Start
 
 ```bash
-# Build
-docker build -t eye_in_hand_calibration:latest .
+# Build (from project root)
+docker build -f docker/Dockerfile -t eye_in_hand_calibration:latest .
 
 # Build (force rebuild)
-docker build --build-arg CACHEBUST=$(date +%s) -t eye_in_hand_calibration:latest .
+docker build -f docker/Dockerfile --build-arg CACHEBUST=$(date +%s) -t eye_in_hand_calibration:latest .
 
 # Start container
-docker-compose up
+docker-compose -f docker/docker-compose.yml up
 
 # Interactive shell
 docker exec -it eye_in_hand_calib bash
 
 # Stop
-docker-compose down
+docker-compose -f docker/docker-compose.yml down
 ```
 
 ## Structure
