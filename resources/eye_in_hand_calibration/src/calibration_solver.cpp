@@ -166,7 +166,7 @@ bool CalibrationSolver::validateResult(const CalibrationResult& result) const {
                    orthogonality_error);
     }
     double translation_norm = result.transformation.block<3, 1>(0, 3).norm();
-    if (translation_norm > 1.0) {  // More than 1 meter seems unusual for hand-eye
+    if (translation_norm > 0.05) {  
         RCLCPP_WARN(logger_, "Large translation: %.3f m", translation_norm);
     }
     return true;
@@ -259,121 +259,6 @@ std::string CalibrationSolver::getMethodName(Method method) {
         case DANIILIDIS: return "Daniilidis";
         default:         return "Unknown";
     }
-}
-std::vector<size_t> CalibrationSolver::refineByError(
-    const std::vector<CalibrationSample>& samples,
-    std::vector<size_t> indices,
-    int target_pairs,
-    int max_iterations) {
-    if (indices.empty()) {
-        RCLCPP_ERROR(logger_, "No indices provided for refinement");
-        return {};
-    }
-    RCLCPP_INFO(logger_, "\n========== ITERATIVE REFINEMENT ==========");
-    RCLCPP_INFO(logger_, "Starting with %zu samples (%zu pairs)",
-                indices.size(), indices.size() - 1);
-    RCLCPP_INFO(logger_, "Target: %d pairs\n", target_pairs);
-    std::vector<size_t> current_indices = indices;
-    std::vector<std::pair<size_t, size_t>> worst_pair_history;
-    const int PATTERN_THRESHOLD = 3;
-    for (int iteration = 0; iteration < max_iterations; ++iteration) {
-        if (static_cast<int>(current_indices.size()) - 1 <= target_pairs) {
-            RCLCPP_INFO(logger_, "\n✓ Reached target of %d pairs", target_pairs);
-            break;
-        }
-        CalibrationResult result = solve(samples, current_indices, false);
-        if (!result.success) {
-            RCLCPP_WARN(logger_, "Calibration failed during refinement iteration %d",
-                       iteration + 1);
-            break;
-        }
-        struct SampleError {
-            size_t idx;
-            double trans_err_mm;
-            double rot_err_deg;
-            double combined_err;
-        };
-        std::vector<SampleError> sample_errors;
-        for (size_t idx : current_indices) {
-            const auto& sample = samples[idx];
-            Eigen::Matrix4d T_camera_pred = sample.sensor_pose * result.transformation;
-            const Eigen::Matrix4d& T_camera_meas = sample.camera_pose;
-            Eigen::Vector3d t_pred = T_camera_pred.block<3, 1>(0, 3);
-            Eigen::Vector3d t_meas = T_camera_meas.block<3, 1>(0, 3);
-            double trans_err_mm = (t_meas - t_pred).norm() * 1000.0;
-            Eigen::Matrix3d R_pred = T_camera_pred.block<3, 3>(0, 0);
-            Eigen::Matrix3d R_meas = T_camera_meas.block<3, 3>(0, 0);
-            Eigen::Matrix3d R_rel = R_pred.transpose() * R_meas;
-            double trace = R_rel.trace();
-            double cos_angle = std::max(-1.0, std::min(1.0, (trace - 1.0) / 2.0));
-            double rot_err_deg = std::acos(cos_angle) * 180.0 / M_PI;
-            if (rot_err_deg > 180.0) {
-                rot_err_deg = 360.0 - rot_err_deg;
-            }
-            double combined_err = trans_err_mm + rot_err_deg * 5.0;
-            sample_errors.push_back({idx, trans_err_mm, rot_err_deg, combined_err});
-        }
-        auto worst_it = std::max_element(sample_errors.begin(), sample_errors.end(),
-            [](const SampleError& a, const SampleError& b) {
-                return a.combined_err < b.combined_err;
-            });
-        if (worst_it == sample_errors.end()) {
-            RCLCPP_WARN(logger_, "No worst sample found, stopping refinement");
-            break;
-        }
-        SampleError worst = *worst_it;
-        worst_pair_history.push_back({worst.idx, worst.idx});  // Dummy pair for compatibility
-        if (worst_pair_history.size() > static_cast<size_t>(PATTERN_THRESHOLD)) {
-            worst_pair_history.erase(worst_pair_history.begin());
-        }
-        size_t sample_to_remove = worst.idx;  // Remove worst sample
-        std::string removal_reason = "worst_prediction_error";
-        if (worst_pair_history.size() >= static_cast<size_t>(PATTERN_THRESHOLD)) {
-            std::map<size_t, int> sample_counts;
-            for (const auto& [si, sj] : worst_pair_history) {
-                sample_counts[si]++;  // Both are the same (dummy pairs)
-            }
-            std::vector<size_t> problematic_samples;
-            for (const auto& [sample, count] : sample_counts) {
-                if (count >= PATTERN_THRESHOLD) {
-                    problematic_samples.push_back(sample);
-                }
-            }
-            if (!problematic_samples.empty()) {
-                if (problematic_samples.size() == 1) {
-                    sample_to_remove = problematic_samples[0];
-                    removal_reason = "outlier (worst " + std::to_string(sample_counts[sample_to_remove]) + " times)";
-                } else {
-                    double max_err = -1.0;
-                    for (const auto& se : sample_errors) {
-                        if (std::find(problematic_samples.begin(), problematic_samples.end(), se.idx) != problematic_samples.end()) {
-                            if (se.combined_err > max_err) {
-                                max_err = se.combined_err;
-                                sample_to_remove = se.idx;
-                            }
-                        }
-                    }
-                    removal_reason = "outlier (worst " + std::to_string(sample_counts[sample_to_remove]) + " times)";
-                }
-                worst_pair_history.clear();
-            }
-        }
-        // Remove the selected sample
-        auto remove_it = std::find(current_indices.begin(), current_indices.end(),
-                                   sample_to_remove);
-        if (remove_it != current_indices.end()) {
-            current_indices.erase(remove_it);
-        }
-        RCLCPP_INFO(logger_,
-            "[Iter %2d] Removed sample %3zu: "
-            "err=%5.1fmm/%5.1f° | Reason: %s | Remaining: %zu samples",
-            iteration + 1, sample_to_remove,
-            worst.trans_err_mm, worst.rot_err_deg,
-            removal_reason.c_str(), current_indices.size());
-    }
-    RCLCPP_INFO(logger_, "\n✓ Refinement complete: %zu samples selected\n",
-               current_indices.size());
-    return current_indices;
 }
 void CalibrationSolver::computeAndPrintAbsoluteErrors(
     const std::vector<CalibrationSample>& samples,

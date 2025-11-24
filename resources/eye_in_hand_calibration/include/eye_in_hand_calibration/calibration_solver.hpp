@@ -96,22 +96,6 @@ public:
     static std::string getMethodName(Method method);
 
     /**
-     * @brief Iterative refinement: removes worst samples based on prediction error
-     * Uses direct prediction error (T_predicted = T_sensor @ X vs T_measured)
-     * instead of AX≈XB pairwise consistency error
-     *
-     * @param samples All calibration samples
-     * @param indices Current sample indices
-     * @param target_pairs Target number of pairs (samples - 1)
-     * @param max_iterations Maximum refinement iterations
-     * @return Refined list of sample indices
-     */
-    std::vector<size_t> refineByError(const std::vector<CalibrationSample>& samples,
-                                       std::vector<size_t> indices,
-                                       int target_pairs,
-                                       int max_iterations);
-
-    /**
      * @brief Compute and print absolute errors using direct prediction comparison
      *
      * Matches Python script's compute_errors_alternative() method:

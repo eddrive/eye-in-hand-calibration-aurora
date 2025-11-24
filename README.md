@@ -9,7 +9,7 @@ This package solves the **AX=XB** hand-eye calibration problem where:
 - **X**: Unknown transformation from sensor to camera (what we want to find)
 - **B**: Relative motion of the camera (estimated via chessboard detection)
 
-The system automatically collects calibration samples, applies advanced filtering based on quality metrics, performs iterative refinement, and outputs the calibrated transformation with comprehensive error analysis.
+The system automatically collects calibration samples, applies advanced filtering based on quality metrics, and outputs the calibrated transformation with comprehensive error analysis.
 
 ## Features
 
@@ -18,7 +18,6 @@ The system automatically collects calibration samples, applies advanced filterin
   - Reprojection error filtering
   - Sensor-camera distance validation
   - Movement coherence checking (translation/rotation ratios)
-- **Iterative Refinement**: Removes worst sample pairs based on AX≈XB consistency error
 - **Multiple Calibration Methods**: Tsai-Lenz, Park-Martin, Horaud-Dornaika, Andreff, Daniilidis
 - **Comprehensive Error Metrics**:
   - AX=XB errors (relative motion consistency)
@@ -160,13 +159,6 @@ max_reproj_error_filter: 0.8       # Max reprojection error (pixels)
 max_sensor_camera_distance: 0.020  # Max sensor-camera distance (20mm)
 max_movement_ratio: 2.3            # Max ratio between sensor/camera movement
 max_rotation_diff_deg: 25.0        # Max rotation difference (degrees)
-```
-
-### Iterative Refinement
-```yaml
-use_iterative_refinement: true
-target_pairs: 20                   # Target number of sample pairs
-max_refinement_iterations: 50      # Max iterations
 ```
 
 ### Calibration Method
@@ -355,25 +347,14 @@ aurora_base                    # Aurora tracking volume reference
 2. **Filter 1**: Reprojection error < 0.8 pixels
 3. **Filter 2**: Sensor-camera distance < 20mm (validates rigid mounting)
 4. **Filter 3**: Movement coherence (ratio < 2.3, rotation diff < 25°)
-5. **Refinement**: Iteratively remove worst pairs based on AX=XB error
-6. **Calibration**: Solve AX=XB using OpenCV's `calibrateHandEye()`
-7. **Validation**: Compute absolute prediction errors
+5. **Calibration**: Solve AX=XB using OpenCV's `calibrateHandEye()`
+6. **Validation**: Compute absolute prediction errors
 
 ### Synchronization
 Aurora poses are stored in a circular buffer. For each image:
 1. Find Aurora pose with closest timestamp
 2. Reject if time difference > `max_pose_age_ms`
 3. Ensures accurate pose-image correspondence
-
-### Iterative Refinement
-```
-while num_pairs > target_pairs:
-    1. Calibrate with current samples
-    2. Compute AX=XB error for each consecutive pair
-    3. Remove sample from worst pair
-    4. Detect outliers (samples appearing in multiple worst pairs)
-    5. Repeat until target reached
-```
 
 ## Dependencies
 

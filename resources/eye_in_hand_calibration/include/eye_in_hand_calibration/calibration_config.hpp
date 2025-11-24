@@ -38,11 +38,13 @@ struct CalibrationConfig {
     double min_movement_threshold;  // meters
     double min_rotation_threshold;  // radians
 
-    // ========== Camera Stillness Detection ==========
-    bool enable_stillness_check;        // enable/disable stillness verification
-    int stillness_buffer_size;          // number of frames to check
-    double max_stillness_translation;   // meters - max movement to be "still"
-    double max_stillness_rotation;      // radians - max rotation to be "still"
+    // ========== Stillness Detection ==========
+    bool enable_stillness_check;              // enable/disable stillness verification
+    int stillness_buffer_size;                // number of frames to check
+    double max_stillness_translation;         // meters - max camera movement to be "still"
+    double max_stillness_rotation;            // radians - max camera rotation to be "still"
+    double max_sensor_stillness_translation;  // meters - max sensor movement to be "still"
+    double max_sensor_stillness_rotation;     // radians - max sensor rotation to be "still"
 
     // ========== Advanced Filtering (Python script logic) ==========
     double max_reproj_error_filter;     // pixels
@@ -50,9 +52,6 @@ struct CalibrationConfig {
     double max_sensor_camera_distance;  // meters - MAXIMUM distance
     double max_movement_ratio;          // dimensionless
     double max_rotation_diff_deg;       // degrees
-    bool use_iterative_refinement;      // enable/disable
-    int target_pairs;                   // target number of pairs after refinement
-    int max_refinement_iterations;      // max iterations for refinement
 
     // ========== Spatial Diversity Filter ==========
     bool use_spatial_diversity;         // enable/disable spatial diversity filter
@@ -118,11 +117,13 @@ struct CalibrationConfig {
         config.min_movement_threshold = node->declare_parameter<double>("min_movement_threshold", 0.015);
         config.min_rotation_threshold = node->declare_parameter<double>("min_rotation_threshold", 0.15);
 
-        // Camera stillness detection
+        // Stillness detection
         config.enable_stillness_check = node->declare_parameter<bool>("enable_stillness_check", true);
         config.stillness_buffer_size = node->declare_parameter<int>("stillness_buffer_size", 5);
         config.max_stillness_translation = node->declare_parameter<double>("max_stillness_translation", 0.002);
         config.max_stillness_rotation = node->declare_parameter<double>("max_stillness_rotation", 0.017);
+        config.max_sensor_stillness_translation = node->declare_parameter<double>("max_sensor_stillness_translation", 0.001);
+        config.max_sensor_stillness_rotation = node->declare_parameter<double>("max_sensor_stillness_rotation", 0.017);
 
         // Advanced filtering - SAME AS PYTHON eyehand_from_yaml.py
         config.max_reproj_error_filter = node->declare_parameter<double>("max_reproj_error_filter", 0.8);
@@ -130,9 +131,6 @@ struct CalibrationConfig {
         config.max_sensor_camera_distance = node->declare_parameter<double>("max_sensor_camera_distance", 0.015);  // 15.0 mm
         config.max_movement_ratio = node->declare_parameter<double>("max_movement_ratio", 1.2);
         config.max_rotation_diff_deg = node->declare_parameter<double>("max_rotation_diff_deg", 15.0);
-        config.use_iterative_refinement = node->declare_parameter<bool>("use_iterative_refinement", false);
-        config.target_pairs = node->declare_parameter<int>("target_pairs", 20);
-        config.max_refinement_iterations = node->declare_parameter<int>("max_refinement_iterations", 50);
 
         // Spatial diversity filter - SAME AS PYTHON
         config.use_spatial_diversity = node->declare_parameter<bool>("use_spatial_diversity", true);

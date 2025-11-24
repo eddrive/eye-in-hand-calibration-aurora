@@ -7,12 +7,12 @@ hand_eye_calibrator:
     # Compressed image feed from endoscope camera
     image_topic: "/endoscope/image_raw/compressed"
 
-    # Aurora tracking data topic (PoseStamped)
-    aurora_topic: "/aurora/sensor0/lowpass_filter"
+    # Aurora tracking data topic
+    aurora_topic: "/aurora/sensor0"
 
     # TF frame hierarchy: aurora_base -> endo_aurora -> [calibration] -> endo_optical
     parent_frame: "aurora_base"        # Fixed Aurora tracking reference
-    child_frame: "endo_aurora"         # Aurora sensor on endoscope
+    child_frame: "endo_aurora_sensor0"         # Aurora sensor on endoscope
     
     # ===========================================
     # CAMERA CALIBRATION
@@ -26,10 +26,10 @@ hand_eye_calibrator:
     # COLLECTION PARAMETERS
     # ===========================================
     
-    max_samples: 80                   # Total samples to collect
+    max_samples: 200                   # Total samples to collect
     final_poses: 20                    # Best samples used for calibration (diversity + quality)
-    max_error_threshold: 0.05          # Max acceptable prediction error (m) - surgical precision
-    max_pose_age_ms: 10                # Max time diff for Aurora-image sync (ms)
+    max_error_threshold: 0.01          # Max acceptable prediction error (m) - surgical precision
+    max_pose_age_ms: 5                # Max time diff for Aurora-image sync (ms)
     aurora_buffer_size: 3000           # Circular buffer size for Aurora poses
     
     # ===========================================
@@ -63,32 +63,29 @@ hand_eye_calibrator:
     min_rotation_threshold: 0.26       # Min rotation between samples (rad) - ~15° for diversity
 
     # ===========================================
-    # CAMERA STILLNESS DETECTION
+    # STILLNESS DETECTION (Camera + Sensor)
     # ===========================================
-    # Save samples only when camera is stable (reduces motion blur and synchronization errors)
-    enable_stillness_check: true       # Enable camera stillness verification before saving
-    stillness_buffer_size: 4           # Number of consecutive frames to check for stillness
-    max_stillness_translation: 0.002   # Max translation to be "still" (m) - 2mm
-    max_stillness_rotation: 0.017      # Max rotation to be "still" (rad) - ~1°
+    # Save samples only when BOTH camera and sensor are stable (reduces motion blur and synchronization errors)
+    enable_stillness_check: false               # Enable stillness verification before saving
+    stillness_buffer_size: 3                   # Number of consecutive frames to check for stillness
+    max_stillness_translation: 0.001           # Max camera translation to be "still" (m) - 1mm
+    max_stillness_rotation: 0.017              # Max camera rotation to be "still" (rad) - ~1°
+    max_sensor_stillness_translation: 0.001    # Max sensor translation to be "still" (m) - 1mm
+    max_sensor_stillness_rotation: 0.017       # Max sensor rotation to be "still" (rad) - ~1°
 
     # ===========================================
-    # ADVANCED FILTERING - SAME AS eyehand_from_yaml.py
+    # ADVANCED FILTERING
     # Filters applied in order:
     # 1. Reprojection error < max_reproj_error_filter
     # 2. min_sensor_camera_distance <= dist <= max_sensor_camera_distance
     # 3. Movement coherence (ALL samples vs REFERENCE with lowest reproj error)
     # 4. Spatial diversity (optional, if use_spatial_diversity=true)
     # ===========================================
-    max_reproj_error_filter: 0.6       # Max reprojection error (px)
-    min_sensor_camera_distance: 0.008  # Min sensor-camera distance (m) - 8.0mm
+    max_reproj_error_filter: 0.5       # Max reprojection error (px)
+    min_sensor_camera_distance: 0.007  # Min sensor-camera distance (m) - 8.0mm
     max_sensor_camera_distance: 0.015  # Max sensor-camera distance (m) - 15.0mm
     max_movement_ratio: 1.2            # Max ratio between sensor/camera movement
     max_rotation_diff_deg: 15.0        # Max rotation difference (degrees)
-
-    # Iterative refinement (currently DISABLED in Python)
-    use_iterative_refinement: false    # Enable iterative pair selection based on AX≈XB error
-    target_pairs: 20                   # Target number of pairs after refinement
-    max_refinement_iterations: 50      # Maximum refinement iterations
 
     # ===========================================
     # SPATIAL DIVERSITY FILTER

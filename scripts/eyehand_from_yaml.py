@@ -20,18 +20,17 @@ CHESSBOARD_DIR = REPO_ROOT / "hardware" / "chessboards" / "measured_points"
 
 CONFIG = {
     "MAX_REPROJ_ERROR_PX": 0.6,
-    "MIN_SENSOR_CAMERA_DIST_MM": 10.0,
-    "MAX_SENSOR_CAMERA_DIST_MM": 16.0,
+    "MIN_SENSOR_CAMERA_DIST_MM": 8.0,
+    "MAX_SENSOR_CAMERA_DIST_MM": 15.0,
+    "USE_MOVEMENT_COHERENCE": False,  # Disabled: not valid for eye-in-hand (sensor offset from camera)
     "MAX_MOVEMENT_RATIO": 1.2,
     "MAX_ROTATION_DIFF_DEG": 15.0,
-    "USE_SPATIAL_DIVERSITY": False,
+    "USE_SPATIAL_DIVERSITY": True,
     "MIN_TRANS_DIST_MM": 14.0,
     "MIN_ROT_DIST_DEG": 10.0,
     "TARGET_DIVERSE_SAMPLES": 40,
-    "METHOD": "horaud",
+    "METHOD": "tsai",
     "MIN_SAMPLES": 10,
-    "USE_ITERATIVE_REFINEMENT": False,
-    "TARGET_PAIRS": 20,
     "USE_NONLINEAR_REFINEMENT": True,
     "REFINEMENT_MAX_ITERATIONS": 100,
     "ROTATION_WEIGHT": 1.0,
@@ -314,117 +313,6 @@ def filter_by_spatial_diversity(samples: List[Dict], indices: List[int],
 
     return result
 
-def refine_samples_by_error(samples: List[Dict], indices: List[int], method_name: str,
-                            target_pairs: int = 20, max_iterations: int = 50) -> List[int]:
-    current_indices = indices.copy()
-
-    worst_pair_history = []
-    PATTERN_THRESHOLD = 3
-
-    print("\n" + "="*70)
-    print("ITERATIVE SAMPLE REFINEMENT (Smart Mode)")
-    print("="*70)
-    print(f"Starting with {len(current_indices)} samples ({len(current_indices)-1} pairs)")
-    print(f"Target: {target_pairs} pairs\n")
-
-    for iteration in range(max_iterations):
-        if len(current_indices) - 1 <= target_pairs:
-            print(f"\n✓ Reached target of {target_pairs} pairs")
-            break
-
-        X = run_handeye(samples, current_indices, method_name)
-
-        pair_errors = []
-        for k in range(len(current_indices) - 1):
-            idx_i = current_indices[k]
-            idx_j = current_indices[k + 1]
-
-            T_sens_i = matrix_from_pos_quat(
-                samples[idx_i]['sensor']['position'],
-                samples[idx_i]['sensor']['orientation']
-            )
-            T_sens_j = matrix_from_pos_quat(
-                samples[idx_j]['sensor']['position'],
-                samples[idx_j]['sensor']['orientation']
-            )
-            T_cam_i = matrix_from_pos_quat(
-                samples[idx_i]['camera']['position'],
-                samples[idx_i]['camera']['orientation']
-            )
-            T_cam_j = matrix_from_pos_quat(
-                samples[idx_j]['camera']['position'],
-                samples[idx_j]['camera']['orientation']
-            )
-
-            A = T_sens_j @ T_inv(T_sens_i)
-            B = T_cam_j @ T_inv(T_cam_i)
-
-            AX = A @ X
-            XB = X @ B
-            Delta = AX @ T_inv(XB)
-
-            trans_err_mm = np.linalg.norm(Delta[:3, 3]) * 1000.0
-            rot_err_deg = np.degrees(rot_angle(Delta[:3, :3]))
-
-            combined_err = trans_err_mm + rot_err_deg * 5.0
-
-            pair_errors.append((k, idx_i, idx_j, trans_err_mm, rot_err_deg, combined_err))
-
-        pair_errors.sort(key=lambda x: x[5], reverse=True)
-        worst = pair_errors[0]
-        _, worst_i, worst_j, worst_trans, worst_rot, _ = worst
-
-        worst_pair_history.append((worst_i, worst_j))
-
-        if len(worst_pair_history) > PATTERN_THRESHOLD:
-            worst_pair_history.pop(0)
-
-        sample_to_remove = None
-        removal_reason = "worst_pair"
-
-        if len(worst_pair_history) >= PATTERN_THRESHOLD:
-            sample_counts = {}
-            for (si, sj) in worst_pair_history:
-                sample_counts[si] = sample_counts.get(si, 0) + 1
-                sample_counts[sj] = sample_counts.get(sj, 0) + 1
-
-            problematic_samples = [s for s, count in sample_counts.items()
-                                  if count >= PATTERN_THRESHOLD]
-
-            if problematic_samples:
-                if len(problematic_samples) == 1:
-                    sample_to_remove = problematic_samples[0]
-                else:
-                    sample_errors = {}
-                    for s in problematic_samples:
-                        errors = []
-                        for (_, idx_i, idx_j, _, _, comb_err) in pair_errors:
-                            if idx_i == s or idx_j == s:
-                                errors.append(comb_err)
-                        if errors:
-                            sample_errors[s] = np.mean(errors)
-
-                    sample_to_remove = max(sample_errors.keys(), key=lambda s: sample_errors[s])
-
-                removal_reason = f"outlier (appeared in {sample_counts[sample_to_remove]} worst pairs)"
-
-                worst_pair_history.clear()
-
-        if sample_to_remove is None:
-            sample_to_remove = worst_j
-            removal_reason = "worst_pair"
-
-        current_indices.remove(sample_to_remove)
-
-        print(f"[Iter {iteration+1:2d}] Removed sample {sample_to_remove:3d} "
-              f"(pair {worst_i:3d}→{worst_j:3d}): "
-              f"err={worst_trans:5.1f}mm/{worst_rot:5.1f}° | "
-              f"Reason: {removal_reason} | "
-              f"Remaining: {len(current_indices)} samples")
-
-    print(f"\n✓ Refinement complete: {len(current_indices)} samples selected\n")
-    return current_indices
-
 def run_handeye(samples: List[Dict], indices: List[int], method_name: str) -> np.ndarray:
     method_map = {
         'tsai': cv2.CALIB_HAND_EYE_TSAI,
@@ -641,6 +529,27 @@ def analyze_movements(samples: List[Dict], indices: List[int]) -> None:
     print(f"  Std:    {np.std(distances, ddof=1):6.2f} mm")
     print()
 
+def compute_sensor_camera_distance_stats(samples: List[Dict]) -> Dict:
+    """Compute distance statistics between sensor and camera for ALL samples."""
+    distances = []
+
+    for sample in samples:
+        sensor_pos = np.array(sample['sensor']['position'])
+        camera_pos = np.array(sample['camera']['position'])
+        dist_mm = np.linalg.norm(camera_pos - sensor_pos) * 1000.0
+        distances.append(dist_mm)
+
+    distances = np.array(distances)
+
+    return {
+        'mean': float(np.mean(distances)),
+        'median': float(np.median(distances)),
+        'min': float(np.min(distances)),
+        'max': float(np.max(distances)),
+        'std': float(np.std(distances, ddof=1)) if len(distances) > 1 else 0.0,
+        'count': len(distances)
+    }
+
 def compute_camera_chessboard_distance(samples: List[Dict], indices: List[int],
                                        chessboard_center: np.ndarray) -> Dict:
     distances = []
@@ -729,7 +638,8 @@ def compute_errors_alternative(samples: List[Dict], indices: List[int], X: np.nd
 
 def save_results(filename: Path, X: np.ndarray, stats_pred: Dict,
                 indices: List[int], config: Dict, input_file: str, chessboard_file: str,
-                avg_camera_chessboard_dist_mm: float = None):
+                avg_camera_chessboard_dist_mm: float = None,
+                test_indices: List[int] = None, stats_test: Dict = None):
     with open(filename, 'w') as f:
         f.write("="*70 + "\n")
         f.write("HAND-EYE CALIBRATION RESULTS\n")
@@ -773,7 +683,7 @@ def save_results(filename: Path, X: np.ndarray, stats_pred: Dict,
         f.write("\n")
 
         f.write("="*70 + "\n")
-        f.write("Calibration Errors:\n")
+        f.write("Training Set Errors (samples used for calibration):\n")
         f.write("="*70 + "\n")
         f.write(f"  Number of samples:   {stats_pred['rotation_deg']['count']}\n")
         f.write(f"  Rotation min:        {stats_pred['rotation_deg']['min']:.4f} deg\n")
@@ -789,6 +699,36 @@ def save_results(filename: Path, X: np.ndarray, stats_pred: Dict,
         f.write(f"  Translation std:     {stats_pred['translation_mm']['std']:.3f} mm\n")
         f.write(f"  Translation RMS:     {stats_pred['translation_mm']['rms']:.3f} mm\n")
         f.write("\n")
+
+        if test_indices is not None and stats_test is not None:
+            f.write("="*70 + "\n")
+            f.write("Test Set Errors (unseen samples - GENERALIZATION):\n")
+            f.write("="*70 + "\n")
+            f.write(f"  Test indices:        {test_indices}\n")
+            f.write(f"  Number of samples:   {stats_test['rotation_deg']['count']}\n")
+            f.write(f"  Rotation RMS:        {stats_test['rotation_deg']['rms']:.4f} deg\n")
+            f.write(f"  Translation RMS:     {stats_test['translation_mm']['rms']:.3f} mm\n")
+            f.write(f"  Translation mean:    {stats_test['translation_mm']['mean']:.3f} mm\n")
+            f.write(f"  Translation std:     {stats_test['translation_mm']['std']:.3f} mm\n")
+            f.write(f"  Translation min:     {stats_test['translation_mm']['min']:.3f} mm\n")
+            f.write(f"  Translation max:     {stats_test['translation_mm']['max']:.3f} mm\n")
+            f.write("\n")
+
+            gap_trans = stats_test['translation_mm']['rms'] - stats_pred['translation_mm']['rms']
+            gap_rot = stats_test['rotation_deg']['rms'] - stats_pred['rotation_deg']['rms']
+            gap_percent = (gap_trans / stats_pred['translation_mm']['rms']) * 100 if stats_pred['translation_mm']['rms'] > 0 else 0
+
+            f.write("Generalization Analysis:\n")
+            f.write(f"  Translation gap:     {gap_trans:+.3f} mm ({gap_percent:+.1f}%)\n")
+            f.write(f"  Rotation gap:        {gap_rot:+.4f} deg\n")
+            if abs(gap_percent) < 20:
+                f.write(f"  Status:              Good generalization (gap < 20%)\n")
+            elif abs(gap_percent) < 50:
+                f.write(f"  Status:              Moderate gap (20-50%)\n")
+            else:
+                f.write(f"  Status:              Poor generalization (gap > 50%)\n")
+            f.write("\n")
+
         f.write("="*70 + "\n")
 
     print(f"\n✓ Results saved to: {filename}")
@@ -948,6 +888,21 @@ def main():
     samples = load_samples(str(samples_file))
     print(f"✓ Loaded {len(samples)} samples\n")
 
+    # Compute sensor-camera distance statistics on ALL samples (before filtering)
+    print("="*70)
+    print("SENSOR-CAMERA DISTANCE (All samples)")
+    print("="*70 + "\n")
+
+    sensor_camera_stats = compute_sensor_camera_distance_stats(samples)
+    print(f"CAMERA (MEASURED) - SENSOR distance statistics:")
+    print(f"  Total samples:  {sensor_camera_stats['count']}")
+    print(f"  Mean:           {sensor_camera_stats['mean']:6.2f} mm")
+    print(f"  Median:         {sensor_camera_stats['median']:6.2f} mm")
+    print(f"  Min:            {sensor_camera_stats['min']:6.2f} mm")
+    print(f"  Max:            {sensor_camera_stats['max']:6.2f} mm")
+    print(f"  Std:            {sensor_camera_stats['std']:6.2f} mm")
+    print()
+
     print("="*70)
     print("APPLYING FILTERS")
     print("="*70 + "\n")
@@ -966,13 +921,15 @@ def main():
         print(f"\n❌ ERROR: Too few samples after filter 2 ({len(indices)} < {CONFIG['MIN_SAMPLES']})")
         sys.exit(1)
 
-    indices = filter_by_movement_coherence(samples, indices,
-                                          CONFIG["MAX_MOVEMENT_RATIO"],
-                                          CONFIG["MAX_ROTATION_DIFF_DEG"])
-
-    if len(indices) < CONFIG["MIN_SAMPLES"]:
-        print(f"\n❌ ERROR: Too few samples after filter 3 ({len(indices)} < {CONFIG['MIN_SAMPLES']})")
-        sys.exit(1)
+    if CONFIG["USE_MOVEMENT_COHERENCE"]:
+        indices = filter_by_movement_coherence(samples, indices,
+                                              CONFIG["MAX_MOVEMENT_RATIO"],
+                                              CONFIG["MAX_ROTATION_DIFF_DEG"])
+        if len(indices) < CONFIG["MIN_SAMPLES"]:
+            print(f"\n❌ ERROR: Too few samples after filter 3 ({len(indices)} < {CONFIG['MIN_SAMPLES']})")
+            sys.exit(1)
+    else:
+        print(f"[Filter 3/4] Movement coherence: DISABLED")
 
     if CONFIG["USE_SPATIAL_DIVERSITY"]:
         indices = filter_by_spatial_diversity(
@@ -988,22 +945,30 @@ def main():
 
     print(f"\n✓ Filters completed: {len(indices)} samples selected\n")
 
-    if CONFIG["USE_ITERATIVE_REFINEMENT"]:
-        indices = refine_samples_by_error(
-            samples, indices, CONFIG["METHOD"],
-            target_pairs=CONFIG["TARGET_PAIRS"]
-        )
+    # Split into train (80%) and test (20%) sets
+    split_point = int(len(indices) * 0.8)
+    train_indices = indices[:split_point]
+    test_indices = indices[split_point:]
 
     print("="*70)
-    print("HAND-EYE CALIBRATION")
+    print("TRAIN/TEST SPLIT")
+    print("="*70 + "\n")
+    print(f"Total samples:    {len(indices)}")
+    print(f"Training set:     {len(train_indices)} samples (80%)")
+    print(f"Test set:         {len(test_indices)} samples (20%)")
+    print(f"Train indices:    {train_indices}")
+    print(f"Test indices:     {test_indices}\n")
+
+    print("="*70)
+    print("HAND-EYE CALIBRATION (Training Set)")
     print("="*70 + "\n")
 
     print(f"Method: {CONFIG['METHOD'].upper()}")
-    print(f"Samples used: {len(indices)}")
-    print(f"Indices: {indices}\n")
+    print(f"Samples used: {len(train_indices)}")
+    print(f"Indices: {train_indices}\n")
 
     try:
-        X = run_handeye(samples, indices, CONFIG["METHOD"])
+        X = run_handeye(samples, train_indices, CONFIG["METHOD"])
     except Exception as e:
         print(f"\n❌ ERROR during calibration: {e}")
         import traceback
@@ -1021,7 +986,7 @@ def main():
 
         X_initial = X.copy()
         X = refine_handeye_nonlinear(
-            samples, indices, X_initial,
+            samples, train_indices, X_initial,
             max_iterations=CONFIG["REFINEMENT_MAX_ITERATIONS"],
             rotation_weight=CONFIG["ROTATION_WEIGHT"]
         )
@@ -1044,7 +1009,7 @@ def main():
     print()
 
     print("="*70)
-    print("MOVEMENT STATISTICS")
+    print("MOVEMENT STATISTICS (All samples)")
     print("="*70)
     analyze_movements(samples, indices)
 
@@ -1052,22 +1017,50 @@ def main():
     print("ERROR EVALUATION")
     print("="*70 + "\n")
 
-    stats_pred = compute_errors_alternative(samples, indices, X)
+    # Training error
+    stats_train = compute_errors_alternative(samples, train_indices, X)
 
-    print("Camera prediction errors in Aurora frame:")
-    print(f"  Samples evaluated:   {stats_pred['rotation_deg']['count']}")
-    print(f"  Rotation min:        {stats_pred['rotation_deg']['min']:.4f} deg")
-    print(f"  Rotation median:     {stats_pred['rotation_deg']['median']:.4f} deg")
-    print(f"  Rotation max:        {stats_pred['rotation_deg']['max']:.4f} deg")
-    print(f"  Rotation mean:       {stats_pred['rotation_deg']['mean']:.4f} deg")
-    print(f"  Rotation std:        {stats_pred['rotation_deg']['std']:.4f} deg")
-    print(f"  Rotation RMS:        {stats_pred['rotation_deg']['rms']:.4f} deg")
-    print(f"  Translation min:     {stats_pred['translation_mm']['min']:.3f} mm")
-    print(f"  Translation median:  {stats_pred['translation_mm']['median']:.3f} mm")
-    print(f"  Translation max:     {stats_pred['translation_mm']['max']:.3f} mm")
-    print(f"  Translation mean:    {stats_pred['translation_mm']['mean']:.3f} mm")
-    print(f"  Translation std:     {stats_pred['translation_mm']['std']:.3f} mm")
-    print(f"  Translation RMS:     {stats_pred['translation_mm']['rms']:.3f} mm\n")
+    print("Training Set Errors (samples used for calibration):")
+    print(f"  Samples evaluated:   {stats_train['rotation_deg']['count']}")
+    print(f"  Rotation RMS:        {stats_train['rotation_deg']['rms']:.4f} deg")
+    print(f"  Translation RMS:     {stats_train['translation_mm']['rms']:.3f} mm")
+    print(f"  Translation mean:    {stats_train['translation_mm']['mean']:.3f} mm")
+    print(f"  Translation std:     {stats_train['translation_mm']['std']:.3f} mm")
+    print(f"  Translation min:     {stats_train['translation_mm']['min']:.3f} mm")
+    print(f"  Translation max:     {stats_train['translation_mm']['max']:.3f} mm\n")
+
+    # Test error (generalization)
+    if len(test_indices) > 0:
+        stats_test = compute_errors_alternative(samples, test_indices, X)
+
+        print("Test Set Errors (unseen samples - GENERALIZATION):")
+        print(f"  Samples evaluated:   {stats_test['rotation_deg']['count']}")
+        print(f"  Rotation RMS:        {stats_test['rotation_deg']['rms']:.4f} deg")
+        print(f"  Translation RMS:     {stats_test['translation_mm']['rms']:.3f} mm")
+        print(f"  Translation mean:    {stats_test['translation_mm']['mean']:.3f} mm")
+        print(f"  Translation std:     {stats_test['translation_mm']['std']:.3f} mm")
+        print(f"  Translation min:     {stats_test['translation_mm']['min']:.3f} mm")
+        print(f"  Translation max:     {stats_test['translation_mm']['max']:.3f} mm\n")
+
+        # Compute generalization gap
+        gap_trans = stats_test['translation_mm']['rms'] - stats_train['translation_mm']['rms']
+        gap_rot = stats_test['rotation_deg']['rms'] - stats_train['rotation_deg']['rms']
+        gap_percent = (gap_trans / stats_train['translation_mm']['rms']) * 100 if stats_train['translation_mm']['rms'] > 0 else 0
+
+        print("Generalization Analysis:")
+        print(f"  Translation gap:     {gap_trans:+.3f} mm ({gap_percent:+.1f}%)")
+        print(f"  Rotation gap:        {gap_rot:+.4f} deg")
+
+        if abs(gap_percent) < 20:
+            print(f"  Status:              ✅ Good generalization (gap < 20%)")
+        elif abs(gap_percent) < 50:
+            print(f"  Status:              ⚠️  Moderate gap (20-50%)")
+        else:
+            print(f"  Status:              ❌ Poor generalization (gap > 50%)")
+        print()
+    else:
+        print("⚠️  No test samples available\n")
+        stats_test = None
 
     chessboard_corners = None
     try:
@@ -1104,10 +1097,12 @@ def main():
     output_file = DATA_RESULTS_DIR / f"handeye_result_{timestamp}.txt"
 
     save_results(
-        output_file, X, stats_pred, indices, CONFIG,
+        output_file, X, stats_train, train_indices, CONFIG,
         str(samples_file.relative_to(REPO_ROOT)),
         str(chessboard_file.relative_to(REPO_ROOT)),
-        avg_camera_chessboard_dist_mm=camera_chessboard_stats['mean']
+        avg_camera_chessboard_dist_mm=camera_chessboard_stats['mean'],
+        test_indices=test_indices if len(test_indices) > 0 else None,
+        stats_test=stats_test
     )
 
     print("="*70)

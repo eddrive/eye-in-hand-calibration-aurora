@@ -48,6 +48,8 @@ HandEyeCalibrator::HandEyeCalibrator() : Node("hand_eye_calibrator") {
         config_.stillness_buffer_size,
         config_.max_stillness_translation,
         config_.max_stillness_rotation,
+        config_.max_sensor_stillness_translation,
+        config_.max_sensor_stillness_rotation,
         this->get_logger()
     );
     solver_ = std::make_unique<CalibrationSolver>(
@@ -229,7 +231,6 @@ void HandEyeCalibrator::processImage(const ImageProcessingTask& task) {
         }
         double reproj_error = pose_estimator_->computeReprojectionError(
             corners, detector_->getObjectPoints(), rvec, tvec);
-        double distance_to_target = cv::norm(tvec);
         Eigen::Matrix4d T_camera_to_aurora = pose_estimator_->poseToMatrix(rvec, tvec);
         // We need the camera position in Aurora frame for hand-eye calibration
         Eigen::Matrix4d T_aurora_to_camera = T_camera_to_aurora.inverse();
@@ -239,6 +240,10 @@ void HandEyeCalibrator::processImage(const ImageProcessingTask& task) {
         double ty_mm = camera_pos_aurora.y() * 1000.0;
         double tz_mm = camera_pos_aurora.z() * 1000.0;
         double rotation_angle_deg = cv::norm(rvec) * 180.0 / M_PI;
+        // Calculate distance to board using real board position in Aurora frame
+        cv::Point3f board_center = detector_->getBoardCenter();
+        Eigen::Vector3d board_pos_aurora(board_center.x, board_center.y, board_center.z);
+        double distance_to_target = (camera_pos_aurora - board_pos_aurora).norm();
         RCLCPP_INFO(this->get_logger(),
             "📍 Camera pos (Aurora frame): [%.1f, %.1f, %.1f]mm | dist to board: %.1fmm",
             tx_mm, ty_mm, tz_mm, distance_to_target * 1000.0);
@@ -287,22 +292,53 @@ void HandEyeCalibrator::processImage(const ImageProcessingTask& task) {
             return;
         }
 
-        // Check camera stillness if enabled (always update buffer, even if we don't save)
+        // Filter by sensor-camera distance
+        if (dist_sensor_camera < config_.min_sensor_camera_distance) {
+            RCLCPP_WARN(this->get_logger(),
+                "❌ Sample discarded: sensor↔camera distance %.1fmm < %.1fmm threshold",
+                dist_sensor_camera * 1000.0, config_.min_sensor_camera_distance * 1000.0);
+            return;
+        }
+        if (dist_sensor_camera > config_.max_sensor_camera_distance) {
+            RCLCPP_WARN(this->get_logger(),
+                "❌ Sample discarded: sensor↔camera distance %.1fmm > %.1fmm threshold",
+                dist_sensor_camera * 1000.0, config_.max_sensor_camera_distance * 1000.0);
+            return;
+        }
+
+        // Check stillness if enabled (always update buffers, even if we don't save)
+        Eigen::Matrix4d T_camera_to_use = T_aurora_to_camera;  // Default: use current pose
+        Eigen::Matrix4d T_sensor_to_use = T_aurora_to_sensor;  // Default: use current pose
+
         if (config_.enable_stillness_check) {
             bool is_camera_still = sample_manager_->isCameraStill(T_aurora_to_camera);
+            bool is_sensor_still = sample_manager_->isSensorStill(T_aurora_to_sensor);
 
             if (!is_camera_still) {
                 RCLCPP_DEBUG(this->get_logger(),
                     "⏸️  Camera is moving, waiting for stillness...");
                 return;
             }
+
+            if (!is_sensor_still) {
+                RCLCPP_DEBUG(this->get_logger(),
+                    "⏸️  Sensor is moving, waiting for stillness...");
+                return;
+            }
+
+            // Both camera and sensor are still - use averaged poses from buffers (with outlier rejection)
+            T_camera_to_use = sample_manager_->getAveragedCameraPose();
+            T_sensor_to_use = sample_manager_->getAveragedSensorPose();
+            RCLCPP_DEBUG(this->get_logger(),
+                "Using averaged camera and sensor poses from %d frames",
+                static_cast<int>(config_.stillness_buffer_size));
         }
 
         // Check if sample is diverse enough from last saved sample
-        if (sample_manager_->shouldSaveSample(T_aurora_to_sensor, T_aurora_to_camera)) {
+        if (sample_manager_->shouldSaveSample(T_sensor_to_use, T_camera_to_use)) {
             int sample_id = sample_manager_->addSample(
-                T_aurora_to_sensor,     // Sensor pose (correct)
-                T_aurora_to_camera,     // Camera pose (CORRECTED - inverted!)
+                T_sensor_to_use,        // Sensor pose (averaged if stillness enabled)
+                T_camera_to_use,        // Camera pose (averaged if stillness enabled)
                 reproj_error,
                 distance_to_target
             );
@@ -348,23 +384,6 @@ void HandEyeCalibrator::selectBestSamplesAndCalibrate() {
     );
     if (selected.empty()) {
         RCLCPP_ERROR(this->get_logger(), "No samples passed advanced filtering!");
-        return;
-    }
-    // ITERATIVE REFINEMENT (optional)
-    if (config_.use_iterative_refinement &&
-        static_cast<int>(selected.size()) - 1 > config_.target_pairs) {
-        RCLCPP_INFO(this->get_logger(),
-            "Applying iterative refinement to reduce from %zu to %d pairs",
-            selected.size() - 1, config_.target_pairs);
-        selected = solver_->refineByError(
-            sample_manager_->getSamples(),
-            selected,
-            config_.target_pairs,
-            config_.max_refinement_iterations
-        );
-    }
-    if (selected.empty()) {
-        RCLCPP_ERROR(this->get_logger(), "No samples after refinement!");
         return;
     }
     // Save all collected samples

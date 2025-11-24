@@ -48,7 +48,7 @@ ChessboardDetector::ChessboardDetector(const cv::Size& pattern_size,
     if (!loadMeasuredObjectPoints(measured_points_file)) {
         RCLCPP_ERROR(logger_, "Failed to load measured points, falling back to ideal grid");
         using_measured_points_ = false;
-        square_size_ = 0.005;  // Default 5mm
+        square_size_ = 0.003;  // Default 3mm
         initializeIdealObjectPoints();
     } else {
         RCLCPP_INFO(logger_, "ChessboardDetector initialized with MEASURED points from: %s",
@@ -67,6 +67,8 @@ void ChessboardDetector::initializeIdealObjectPoints() {
             );
         }
     }
+    // Calculate board center (for ideal grid, it's at origin)
+    board_center_ = cv::Point3f(0.0f, 0.0f, 0.0f);
     RCLCPP_INFO(logger_, "Generated %zu ideal object points (planar grid)",
                 object_points_.size());
 }
@@ -113,13 +115,21 @@ bool ChessboardDetector::loadMeasuredObjectPoints(const std::string& filepath) {
         }
         float min_x = object_points_[0].x;
         float max_x = object_points_[0].x;
+        // Calculate board center as mean of all points
+        cv::Point3f sum(0.0f, 0.0f, 0.0f);
         for (const auto& pt : object_points_) {
             min_x = std::min(min_x, pt.x);
             max_x = std::max(max_x, pt.x);
+            sum.x += pt.x;
+            sum.y += pt.y;
+            sum.z += pt.z;
         }
+        board_center_ = sum * (1.0f / object_points_.size());
         RCLCPP_INFO(logger_, "Loaded %zu measured object points", object_points_.size());
         RCLCPP_INFO(logger_, "X range: [%.6f, %.6f] m (planarity deviation: %.6f m)",
                     min_x, max_x, max_x - min_x);
+        RCLCPP_INFO(logger_, "Board center (Aurora frame): [%.3f, %.3f, %.3f] m",
+                    board_center_.x, board_center_.y, board_center_.z);
         return true;
     } catch (const YAML::Exception& e) {
         RCLCPP_ERROR(logger_, "YAML parsing error: %s", e.what());

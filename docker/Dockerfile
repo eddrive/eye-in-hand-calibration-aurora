@@ -117,7 +117,7 @@ RUN rosdep update
 # Copy Packages
 # ============================================
 
-# AGGIUNTO: Build argument per invalidare la cache
+# Build argument per invalidare la cache
 ARG CACHEBUST=1
 
 # Clone Aurora NDI ROS2 driver from GitHub

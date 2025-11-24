@@ -14,6 +14,8 @@ SampleManager::SampleManager(double min_movement_threshold,
                              size_t stillness_buffer_size,
                              double max_stillness_translation,
                              double max_stillness_rotation,
+                             double max_sensor_stillness_translation,
+                             double max_sensor_stillness_rotation,
                              rclcpp::Logger logger)
     : next_sample_id_(0),
       min_movement_threshold_(min_movement_threshold),
@@ -22,15 +24,21 @@ SampleManager::SampleManager(double min_movement_threshold,
       stillness_buffer_size_(stillness_buffer_size),
       max_stillness_translation_(max_stillness_translation),
       max_stillness_rotation_(max_stillness_rotation),
+      max_sensor_stillness_translation_(max_sensor_stillness_translation),
+      max_sensor_stillness_rotation_(max_sensor_stillness_rotation),
       logger_(logger)
 {
     RCLCPP_INFO(logger_,
                 "SampleManager initialized: min_movement=%.3fm, min_rotation=%.3frad, max_error=%.1fpx",
                 min_movement_threshold_, min_rotation_threshold_, max_reprojection_error_);
     RCLCPP_INFO(logger_,
-                "Stillness detection: buffer=%zu frames, max_trans=%.1fmm, max_rot=%.1f°",
+                "Camera stillness: buffer=%zu frames, max_trans=%.1fmm, max_rot=%.1f°",
                 stillness_buffer_size_, max_stillness_translation_ * 1000.0,
                 max_stillness_rotation_ * 180.0 / M_PI);
+    RCLCPP_INFO(logger_,
+                "Sensor stillness: buffer=%zu frames, max_trans=%.1fmm, max_rot=%.1f°",
+                stillness_buffer_size_, max_sensor_stillness_translation_ * 1000.0,
+                max_sensor_stillness_rotation_ * 180.0 / M_PI);
 }
 bool SampleManager::shouldSaveSample(const Eigen::Matrix4d& sensor_pose,
                                      [[maybe_unused]] const Eigen::Matrix4d& camera_pose) {
@@ -92,6 +100,276 @@ bool SampleManager::isCameraStill(const Eigen::Matrix4d& camera_pose) {
 
     RCLCPP_INFO(logger_, "✓ Camera is still (checked %zu frames)", stillness_buffer_size_);
     return true;
+}
+
+Eigen::Matrix4d SampleManager::getAveragedCameraPose() const {
+    std::lock_guard<std::mutex> lock(stillness_mutex_);
+
+    if (recent_camera_poses_.empty()) {
+        RCLCPP_WARN(logger_, "Cannot average poses: buffer is empty");
+        return Eigen::Matrix4d::Identity();
+    }
+
+    if (recent_camera_poses_.size() < 3) {
+        // Not enough data for robust averaging, return last pose
+        return recent_camera_poses_.back();
+    }
+
+    // Extract translations and quaternions
+    std::vector<Eigen::Vector3d> translations;
+    std::vector<Eigen::Quaterniond> quaternions;
+
+    for (const auto& pose : recent_camera_poses_) {
+        translations.push_back(pose.block<3,1>(0,3));
+        Eigen::Matrix3d R = pose.block<3,3>(0,0);
+        quaternions.push_back(Eigen::Quaterniond(R));
+    }
+
+    // --- STEP 1: Filter translation outliers using MAD ---
+
+    // Compute median translation
+    std::vector<Eigen::Vector3d> trans_sorted = translations;
+    size_t median_idx = trans_sorted.size() / 2;
+    std::nth_element(trans_sorted.begin(), trans_sorted.begin() + median_idx, trans_sorted.end(),
+        [](const Eigen::Vector3d& a, const Eigen::Vector3d& b) {
+            return a.norm() < b.norm();
+        });
+    Eigen::Vector3d median_trans = trans_sorted[median_idx];
+
+    // Compute MAD (Median Absolute Deviation)
+    std::vector<double> deviations;
+    for (const auto& t : translations) {
+        deviations.push_back((t - median_trans).norm());
+    }
+    std::sort(deviations.begin(), deviations.end());
+    double mad = deviations[deviations.size() / 2];
+
+    // Filter outliers (keep if deviation < 3 * MAD)
+    const double mad_threshold = 3.0;
+    std::vector<size_t> valid_indices;
+    for (size_t i = 0; i < translations.size(); ++i) {
+        double dev = (translations[i] - median_trans).norm();
+        if (dev < mad_threshold * mad || mad < 1e-6) {  // If MAD ~0, keep all
+            valid_indices.push_back(i);
+        }
+    }
+
+    if (valid_indices.empty()) {
+        RCLCPP_WARN(logger_, "All poses filtered as outliers, using median");
+        Eigen::Matrix4d result = Eigen::Matrix4d::Identity();
+        result.block<3,1>(0,3) = median_trans;
+        result.block<3,3>(0,0) = quaternions[median_idx].toRotationMatrix();
+        return result;
+    }
+
+    // --- STEP 2: Filter rotation outliers using angular distance ---
+
+    // Use first valid quaternion as reference
+    Eigen::Quaterniond ref_quat = quaternions[valid_indices[0]];
+
+    // Ensure all quaternions have same orientation (shortest path)
+    for (size_t i = 1; i < valid_indices.size(); ++i) {
+        size_t idx = valid_indices[i];
+        if (quaternions[idx].dot(ref_quat) < 0) {
+            quaternions[idx].coeffs() = -quaternions[idx].coeffs();
+        }
+    }
+
+    // Compute angular distances from reference
+    std::vector<size_t> rotation_valid_indices;
+    const double max_angular_dist = 5.0 * M_PI / 180.0;  // 5 degrees threshold
+
+    for (size_t idx : valid_indices) {
+        double angular_dist = ref_quat.angularDistance(quaternions[idx]);
+        if (angular_dist < max_angular_dist) {
+            rotation_valid_indices.push_back(idx);
+        }
+    }
+
+    if (rotation_valid_indices.empty()) {
+        RCLCPP_WARN(logger_, "All rotations filtered as outliers, using reference");
+        rotation_valid_indices = valid_indices;
+    }
+
+    // --- STEP 3: Compute weighted average ---
+
+    // Average translation (simple mean of filtered poses)
+    Eigen::Vector3d avg_translation = Eigen::Vector3d::Zero();
+    for (size_t idx : rotation_valid_indices) {
+        avg_translation += translations[idx];
+    }
+    avg_translation /= rotation_valid_indices.size();
+
+    // Average quaternions (normalized mean - simple but effective)
+    Eigen::Vector4d avg_quat_coeffs = Eigen::Vector4d::Zero();
+    for (size_t idx : rotation_valid_indices) {
+        avg_quat_coeffs += quaternions[idx].coeffs();
+    }
+    avg_quat_coeffs /= rotation_valid_indices.size();
+
+    Eigen::Quaterniond avg_quat(avg_quat_coeffs);
+    avg_quat.normalize();
+
+    // Build result matrix
+    Eigen::Matrix4d result = Eigen::Matrix4d::Identity();
+    result.block<3,3>(0,0) = avg_quat.toRotationMatrix();
+    result.block<3,1>(0,3) = avg_translation;
+
+    RCLCPP_DEBUG(logger_,
+        "Averaged %zu/%zu camera poses (filtered %zu outliers)",
+        rotation_valid_indices.size(),
+        recent_camera_poses_.size(),
+        recent_camera_poses_.size() - rotation_valid_indices.size());
+
+    return result;
+}
+
+bool SampleManager::isSensorStill(const Eigen::Matrix4d& sensor_pose) {
+    std::lock_guard<std::mutex> lock(stillness_mutex_);
+
+    recent_sensor_poses_.push_back(sensor_pose);
+
+    if (recent_sensor_poses_.size() > stillness_buffer_size_) {
+        recent_sensor_poses_.pop_front();
+    }
+
+    if (recent_sensor_poses_.size() < stillness_buffer_size_) {
+        RCLCPP_DEBUG(logger_,
+            "Not enough sensor poses for stillness check: %zu/%zu",
+            recent_sensor_poses_.size(), stillness_buffer_size_);
+        return false;
+    }
+
+    // Check if all recent poses are within stillness thresholds
+    for (size_t i = 1; i < recent_sensor_poses_.size(); ++i) {
+        double trans_dist = calculateTranslationDistance(
+            recent_sensor_poses_[i], recent_sensor_poses_[0]);
+        double rot_angle = calculateRotationAngle(
+            recent_sensor_poses_[i], recent_sensor_poses_[0]);
+
+        if (trans_dist > max_sensor_stillness_translation_ ||
+            rot_angle > max_sensor_stillness_rotation_) {
+            RCLCPP_DEBUG(logger_,
+                "Sensor moving: trans=%.3fmm, rot=%.2f° (limits: %.3fmm, %.2f°)",
+                trans_dist * 1000.0, rot_angle * 180.0 / M_PI,
+                max_sensor_stillness_translation_ * 1000.0,
+                max_sensor_stillness_rotation_ * 180.0 / M_PI);
+            return false;
+        }
+    }
+
+    RCLCPP_INFO(logger_, "✓ Sensor is still (checked %zu frames)", stillness_buffer_size_);
+    return true;
+}
+
+Eigen::Matrix4d SampleManager::getAveragedSensorPose() const {
+    std::lock_guard<std::mutex> lock(stillness_mutex_);
+
+    if (recent_sensor_poses_.empty()) {
+        RCLCPP_WARN(logger_, "Cannot average sensor poses: buffer is empty");
+        return Eigen::Matrix4d::Identity();
+    }
+
+    if (recent_sensor_poses_.size() < 3) {
+        // Not enough data for robust averaging, return last pose
+        return recent_sensor_poses_.back();
+    }
+
+    // Extract translations and quaternions
+    std::vector<Eigen::Vector3d> translations;
+    std::vector<Eigen::Quaterniond> quaternions;
+
+    for (const auto& pose : recent_sensor_poses_) {
+        translations.push_back(pose.block<3,1>(0,3));
+        Eigen::Matrix3d R = pose.block<3,3>(0,0);
+        quaternions.push_back(Eigen::Quaterniond(R));
+    }
+
+    // STEP 1: Filter translation outliers using MAD
+    std::vector<Eigen::Vector3d> translations_sorted = translations;
+    std::sort(translations_sorted.begin(), translations_sorted.end(),
+        [](const Eigen::Vector3d& a, const Eigen::Vector3d& b) {
+            return a.norm() < b.norm();
+        });
+
+    Eigen::Vector3d median_translation = translations_sorted[translations_sorted.size() / 2];
+
+    std::vector<double> deviations;
+    for (const auto& t : translations) {
+        deviations.push_back((t - median_translation).norm());
+    }
+    std::sort(deviations.begin(), deviations.end());
+    double mad = deviations[deviations.size() / 2];
+
+    std::vector<size_t> translation_valid_indices;
+    const double mad_threshold = 3.0;
+    for (size_t i = 0; i < translations.size(); ++i) {
+        double dev = (translations[i] - median_translation).norm();
+        if (dev < mad_threshold * mad || mad < 1e-6) {
+            translation_valid_indices.push_back(i);
+        }
+    }
+
+    if (translation_valid_indices.empty()) {
+        RCLCPP_WARN(logger_, "All sensor translations filtered as outliers, using all poses");
+        for (size_t i = 0; i < translations.size(); ++i) {
+            translation_valid_indices.push_back(i);
+        }
+    }
+
+    // STEP 2: Filter rotation outliers using angular distance
+    Eigen::Quaterniond reference_quat = quaternions[translation_valid_indices[0]];
+
+    for (size_t i = 1; i < translation_valid_indices.size(); ++i) {
+        size_t idx = translation_valid_indices[i];
+        if (quaternions[idx].dot(reference_quat) < 0) {
+            quaternions[idx].coeffs() *= -1.0;
+        }
+    }
+
+    std::vector<size_t> rotation_valid_indices;
+    const double max_angular_distance = 5.0 * M_PI / 180.0;  // 5 degrees
+
+    for (size_t idx : translation_valid_indices) {
+        double angular_dist = reference_quat.angularDistance(quaternions[idx]);
+        if (angular_dist < max_angular_distance) {
+            rotation_valid_indices.push_back(idx);
+        }
+    }
+
+    if (rotation_valid_indices.empty()) {
+        RCLCPP_WARN(logger_, "All sensor rotations filtered as outliers, using translation-valid poses");
+        rotation_valid_indices = translation_valid_indices;
+    }
+
+    // STEP 3: Compute weighted average
+    Eigen::Vector3d avg_translation = Eigen::Vector3d::Zero();
+    for (size_t idx : rotation_valid_indices) {
+        avg_translation += translations[idx];
+    }
+    avg_translation /= static_cast<double>(rotation_valid_indices.size());
+
+    Eigen::Vector4d avg_quat_coeffs = Eigen::Vector4d::Zero();
+    for (size_t idx : rotation_valid_indices) {
+        avg_quat_coeffs += quaternions[idx].coeffs();
+    }
+    avg_quat_coeffs /= static_cast<double>(rotation_valid_indices.size());
+
+    Eigen::Quaterniond avg_quat(avg_quat_coeffs);
+    avg_quat.normalize();
+
+    // Build result matrix
+    Eigen::Matrix4d result = Eigen::Matrix4d::Identity();
+    result.block<3,3>(0,0) = avg_quat.toRotationMatrix();
+    result.block<3,1>(0,3) = avg_translation;
+
+    RCLCPP_DEBUG(logger_,
+        "Averaged %zu/%zu sensor poses (filtered %zu outliers)",
+        rotation_valid_indices.size(),
+        recent_sensor_poses_.size(),
+        recent_sensor_poses_.size() - rotation_valid_indices.size());
+
+    return result;
 }
 
 int SampleManager::addSample(const Eigen::Matrix4d& sensor_pose,

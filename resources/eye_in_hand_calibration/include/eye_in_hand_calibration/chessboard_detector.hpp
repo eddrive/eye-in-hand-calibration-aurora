@@ -68,7 +68,22 @@ public:
     double getSquareSize() const {
         return square_size_;
     }
-    
+
+    /**
+     * @brief Get chessboard center position in Aurora frame
+     * @return Center position (mean of all corners), or (0,0,0) if using ideal points
+     */
+    cv::Point3f getBoardCenter() const {
+        return board_center_;
+    }
+
+    /**
+     * @brief Check if using measured object points from Aurora
+     */
+    bool isUsingMeasuredPoints() const {
+        return using_measured_points_;
+    }
+
     /**
      * @brief Calculate corner detection quality metric
      * @param corners Detected corners
@@ -123,7 +138,8 @@ private:
     cv::Size pattern_size_;              // Chessboard dimensions (cols, rows)
     double square_size_;                 // Physical square size in meters
     std::vector<cv::Point3f> object_points_;  // 3D pattern points
-    
+    cv::Point3f board_center_;           // Center position of chessboard in Aurora frame
+
     // Detection parameters
     int flags_;                          // OpenCV findChessboardCorners flags
     double max_variance_threshold_;      // Max acceptable corner variance
