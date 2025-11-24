@@ -270,19 +270,9 @@ void HandEyeCalibrator::processImage(const ImageProcessingTask& task) {
             dist_sensor_camera * 1000.0,
             (dist_sensor_camera > 0.15) ? "⚠️ (seems large!)" : "");
         // SAVE SAMPLE WITH CORRECTED POSES
-        // Both poses are now in Aurora frame:
+        // Both poses are in Aurora frame:
         // - T_aurora_to_sensor: sensor pose in Aurora frame
         // - T_aurora_to_camera: camera pose in Aurora frame (inverted from PnP result)
-        // // ========================================
-        // // CRITICAL DEBUG: Log what we're saving
-        // // ========================================
-        // RCLCPP_ERROR(this->get_logger(),
-        //     "🔵 DEBUG SAVE: Camera pose elements[0-3]: [%.4f, %.4f, %.4f, %.4f]",
-        //     T_aurora_to_camera(0,0), T_aurora_to_camera(0,1), 
-        //     T_aurora_to_camera(0,2), T_aurora_to_camera(0,3));
-        // RCLCPP_ERROR(this->get_logger(),
-        //     "🔵 DEBUG SAVE: Camera pos from matrix: [%.4f, %.4f, %.4f]",
-        //     T_aurora_to_camera(0,3), T_aurora_to_camera(1,3), T_aurora_to_camera(2,3));
 
         // Filter by reprojection error before saving
         if (reproj_error > config_.max_reproj_error_filter) {
@@ -367,9 +357,9 @@ void HandEyeCalibrator::selectBestSamplesAndCalibrate() {
     std::stringstream timestamp;
     timestamp << std::put_time(local_time, "%Y%m%d_%H%M%S");
     // Filters in order:
-    // 1. Reprojection error < 0.8px
-    // 2. Sensor-camera distance 8.0mm - 15.0mm
-    // 3. Movement coherence (ratio<1.2, Δrot<15.0°) - ALL vs REFERENCE
+    // 1. Reprojection error 
+    // 2. Sensor-camera distance
+    // 3. Movement coherence
     // 4. Spatial diversity (optional, if enabled)
     auto selected = sample_manager_->selectSamplesAdvanced(
         config_.max_reproj_error_filter,
